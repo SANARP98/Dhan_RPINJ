@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException
 import os
-import json
-from dhanhq import dhanhq
+import logging
 from dotenv import load_dotenv
+from dhanhq import dhanhq
 from fastapi.responses import HTMLResponse
 
 # Load environment variables
@@ -10,15 +10,26 @@ load_dotenv()
 api_key = os.getenv("DHAN_API_KEY")
 password = os.getenv("DHAN_PASSWORD")
 
-# Initialize API connection
-dhan = dhanhq(api_key, password)
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Initialize FastAPI app
 app = FastAPI()
 
+# Initialize API connection
+try:
+    dhan = dhanhq(api_key, password)
+    logging.info("Successfully connected to DhanHQ API")
+except Exception as e:
+    logging.error(f"Error initializing DhanHQ API: {str(e)}")
+    dhan = None  # Prevents the app from crashing if API initialization fails
+
 # 🏷️ API to place an order
 @app.post("/place-order")
 async def place_order():
+    if not dhan:
+        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+
     try:
         order = dhan.place_order(
             security_id="44903",
@@ -29,19 +40,26 @@ async def place_order():
             product_type=dhan.MARGIN,
             price=0.1
         )
+        logging.info(f"Order placed: {order}")
         return {"message": "Order placed successfully", "order": order}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Order placement failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
 
 # 🏷️ API to fetch active orders (excluding cancelled)
 @app.get("/orders")
 async def get_orders():
+    if not dhan:
+        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+
     try:
         response = dhan.get_order_list()
-        orders = [order for order in response.get("data", []) ]
+        orders = response.get("data", [])
+        logging.info(f"Fetched {len(orders)} orders")
         return {"orders": orders}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Fetching orders failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fetching orders failed: {str(e)}")
 
 # 🏷️ Basic UI for placing orders and fetching them
 @app.get("/", response_class=HTMLResponse)
@@ -61,30 +79,42 @@ async def homepage():
             </style>
             <script>
                 async function placeOrder() {
-                    let response = await fetch('/place-order', { method: 'POST' });
-                    let data = await response.json();
-                    alert("Order placed: " + JSON.stringify(data, null, 2));
+                    try {
+                        let response = await fetch('/place-order', { method: 'POST' });
+                        let data = await response.json();
+                        if (response.ok) {
+                            alert("Order placed successfully: " + JSON.stringify(data, null, 2));
+                        } else {
+                            alert("Error: " + data.detail);
+                        }
+                    } catch (error) {
+                        alert("Network error while placing order.");
+                    }
                 }
 
                 async function fetchOrders() {
-                    let response = await fetch('/orders');
-                    let data = await response.json();
-                    let orders = data.orders;
+                    try {
+                        let response = await fetch('/orders');
+                        let data = await response.json();
+                        let orders = data.orders;
+                        let tableHTML = "<table><tr><th>Order ID</th><th>Status</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Time</th></tr>";
 
-                    let tableHTML = "<table><tr><th>Order ID</th><th>Status</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Time</th></tr>";
-                    orders.forEach(order => {
-                        tableHTML += `<tr>
-                            <td>${order.orderId}</td>
-                            <td>${order.orderStatus}</td>
-                            <td>${order.tradingSymbol}</td>
-                            <td>${order.quantity}</td>
-                            <td>${order.price}</td>
-                            <td>${order.createTime}</td>
-                        </tr>`;
-                    });
-                    tableHTML += "</table>";
+                        orders.forEach(order => {
+                            tableHTML += `<tr>
+                                <td>${order.orderId}</td>
+                                <td>${order.orderStatus}</td>
+                                <td>${order.tradingSymbol}</td>
+                                <td>${order.quantity}</td>
+                                <td>${order.price}</td>
+                                <td>${order.createTime}</td>
+                            </tr>`;
+                        });
 
-                    document.getElementById("orders").innerHTML = tableHTML;
+                        tableHTML += "</table>";
+                        document.getElementById("orders").innerHTML = tableHTML;
+                    } catch (error) {
+                        alert("Error fetching orders.");
+                    }
                 }
             </script>
         </head>
@@ -96,3 +126,4 @@ async def homepage():
         </body>
     </html>
     """
+
