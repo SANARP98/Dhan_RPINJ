@@ -11,7 +11,7 @@ symbol = "NIFTY-Feb2025-23800-CE"
 expiry = "06/02/2025"  # Ensure format matches DB format
 
 def format_expiry_date(expiry: str):
-    """Convert DD/MM/YYYY to YYYY-MM-DD if required for SQL matching."""
+    """Convert DD/MM/YYYY to YYYY-MM-DD for SQL comparison."""
     try:
         return datetime.strptime(expiry, "%d/%m/%Y").strftime("%Y-%m-%d")
     except ValueError:
@@ -61,11 +61,11 @@ def search_symbol_and_expiry(symbol: str, expiry: str):
     for row in symbol_results:
         print(row)  # Print all rows where the symbol exists
 
-    # ✅ Step 2: Check if EXPIRY exists for the given SYMBOL
+    # ✅ Step 2: Check if EXPIRY exists for the given SYMBOL (Ignoring Time)
     query_expiry = f"""
         SELECT * FROM options
         WHERE LOWER(TRIM(REPLACE({symbol_column}, '-', ''))) = LOWER(TRIM(REPLACE(?, '-', '')))
-        AND TRIM({expiry_column}) = ?
+        AND DATE({expiry_column}) = ?
     """
     cursor.execute(query_expiry, (symbol, formatted_expiry))
     expiry_results = cursor.fetchall()
