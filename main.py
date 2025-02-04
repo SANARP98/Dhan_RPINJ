@@ -10,6 +10,9 @@ from starlette.requests import Request
 from pydantic import BaseModel
 import openai
 import datetime
+import sqlite3
+import json
+import re
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +22,8 @@ password = os.getenv("DHAN_PASSWORD")
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+DB_PATH = "options.db"
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -104,6 +109,18 @@ async def get_holdings():
 class TextInput(BaseModel):
     text: str
 
+# Define response model for processing
+class TradingResponse(BaseModel):
+    symbol: str
+    date: str
+    expiry: str
+    Buy1: int
+    Buy2: int
+    SL1: int
+    SL2: int
+    Target1: int
+    Target2: int
+
 # 🏷️ Endpoint to receive text from UI
 def get_expiry_date():
     """Find the nearest upcoming Thursday as expiry date."""
@@ -132,6 +149,10 @@ def get_last_thursday_of_month():
     
     print(f"Last Thursday of the month: {last_thursday}")
     return last_thursday.strftime("%d/%m/%Y")
+def clean_gpt_response(response):
+    """Removes markdown formatting (```json ... ```) from GPT response."""
+    return re.sub(r"```json\s*|\s*```", "", response).strip()  # Remove backticks and json keyword
+
 
 def generate_prompt(text):
     """Generate a structured prompt to extract the required trading details."""
@@ -172,11 +193,81 @@ async def call_chatgpt(prompt):
     )
     return response.choices[0].message.content
 
+def search_options_in_db(symbol: str, expiry: str):
+    """Searches for options in the database using SYMBOL_NAME and SM_EXPIRY_DATE."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Dynamically get column names
+    cursor.execute("PRAGMA table_info(options)")
+    columns = [col[1] for col in cursor.fetchall()]  # Fetch column names
+    print(f"Database Columns: {columns}")  # Debugging
+
+    if "SYMBOL_NAME" not in columns or "SM_EXPIRY_DATE" not in columns:
+        print("Error: Required columns not found in the database.")
+        conn.close()
+        return []
+
+    # Ensure the correct column names
+    symbol_column = "SYMBOL_NAME"
+    expiry_column = "SM_EXPIRY_DATE"
+
+    # ✅ Fix: Ensure case-insensitive comparison for SYMBOL_NAME and exact match for expiry
+    query = f"""
+        SELECT * FROM options
+        WHERE LOWER(TRIM(REPLACE({symbol_column}, '-', ''))) = LOWER(TRIM(REPLACE(?, '-', '')))
+        AND {expiry_column} = ?
+    """
+
+    print(f"Executing Query: {query}")  # Debugging query
+    print(f"Parameters: Symbol='{symbol}', Expiry='{expiry}'")  # Debugging parameters
+
+    cursor.execute(query, (symbol, expiry))
+    results = cursor.fetchall()
+    conn.close()
+
+    return results
+
+from datetime import datetime
+
+def format_expiry_date(expiry: str):
+    """Convert DD/MM/YYYY to YYYY-MM-DD for SQL comparison."""
+    try:
+        return datetime.strptime(expiry, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return expiry
+
 @app.post("/submit-text")
 async def submit_text(input_data: TextInput):
-    """Processes the input text and returns structured JSON."""
+    """Processes input text, extracts trading data, and searches options database automatically."""
     prompt = generate_prompt(input_data.text)
     processed_response = await call_chatgpt(prompt)
-    print(processed_response)
 
-    return {"message": "Text processed successfully", "data": processed_response}
+    print(f"Raw GPT Response:\n{processed_response}")  # Debugging
+
+    # ✅ Remove backticks before parsing
+    cleaned_response = clean_gpt_response(processed_response)
+    
+    # Convert response into structured dictionary
+    try:
+        structured_data = json.loads(cleaned_response)  # ✅ Now safe to parse
+    except json.JSONDecodeError as e:
+        print("Failed parsing GPT response")
+        return {"error": "Failed to parse GPT response", "details": str(e)}
+
+    # Extract required fields
+    symbol = structured_data.get("symbol", "").strip()
+    expiry = structured_data.get("expiry", "").strip()
+
+    print(f"Extracted Symbol: {symbol}")
+    print(f"Extracted Expiry: {expiry}")
+
+    # Search in database
+    matching_options = search_options_in_db(symbol, expiry)
+    print(matching_options)
+
+    return {
+        "message": "Text processed and options searched successfully",
+        "data": structured_data,
+        "options": matching_options if matching_options else "No matching options found"
+    }
