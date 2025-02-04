@@ -16,6 +16,9 @@
 </head>
 <body>
     <h1>DhanHQ Trading Dashboard</h1>
+    <textarea id="textInput" placeholder="Enter your text here..."></textarea>
+    <button onclick="submitText()">Submit Text</button>
+    <p id="message"></p>
     <button onclick="placeOrder()">Place Order</button>
     <button onclick="fetchOrders()">Fetch Orders</button>
     <button onclick="fetchHoldings()">Fetch Holdings</button>
@@ -24,6 +27,30 @@
     <div id="holdings"></div>
 
     <script>
+        async function submitText() {
+            let text = document.getElementById("textInput").value;
+            if (!text.trim()) {
+                alert("Please enter some text.");
+                return;
+            }
+
+            try {
+                let response = await fetch('/submit-text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                let data = await response.json();
+                if (response.ok) {
+                    document.getElementById("message").textContent = "Text submitted successfully!";
+                } else {
+                    alert("Error: " + data.detail);
+                }
+            } catch (error) {
+                alert("Network error while submitting text.");
+            }
+        }
         async function placeOrder() {
             try {
                 let response = await fetch('/place-order', { method: 'POST' });
@@ -39,30 +66,41 @@
         }
 
         async function fetchOrders() {
-            try {
-                let response = await fetch('/orders');
-                let data = await response.json();
-                let orders = data.orders;
+    try {
+        let response = await fetch('/orders');
+        let data = await response.json();
+        let orders = data.orders;
 
-                let tableHTML = "<table><tr><th>Order ID</th><th>Status</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Time</th></tr>";
+        let tableHTML = `<table>
+            <tr>
+                <th>Order ID</th>
+                <th>Status</th>
+                <th>Symbol</th>
+                <th>Security ID</th>
+                <th>Quantity</th>
+                <th>Price</th>
+                <th>Time</th>
+            </tr>`;
 
-                orders.forEach(order => {
-                    tableHTML += `<tr>
-                        <td>${order.orderId}</td>
-                        <td>${order.orderStatus}</td>
-                        <td>${order.tradingSymbol}</td>
-                        <td>${order.quantity}</td>
-                        <td>${order.price}</td>
-                        <td>${order.createTime}</td>
-                    </tr>`;
-                });
+        orders.forEach(order => {
+            tableHTML += `<tr>
+                <td>${order.orderId}</td>
+                <td>${order.orderStatus}</td>
+                <td>${order.tradingSymbol}</td>
+                <td>${order.securityId}</td>
+                <td>${order.quantity}</td>
+                <td>${order.price}</td>
+                <td>${order.createTime}</td>
+            </tr>`;
+        });
 
-                tableHTML += "</table>";
-                document.getElementById("orders").innerHTML = tableHTML;
-            } catch (error) {
-                alert("Error fetching orders.");
-            }
-        }
+        tableHTML += "</table>";
+        document.getElementById("orders").innerHTML = tableHTML;
+    } catch (error) {
+        alert("Error fetching orders.");
+        console.error(error);
+    }
+}
 
         async function fetchHoldings() {
             try {
