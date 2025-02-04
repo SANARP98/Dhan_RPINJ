@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DhanHQ Trading Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
+        h1 { color: #333; }
+        button { padding: 10px 15px; font-size: 16px; margin: 10px; cursor: pointer; }
+        table { width: 90%; margin: 20px auto; border-collapse: collapse; background: white; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
+        th { background: #007bff; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <h1>DhanHQ Trading Dashboard</h1>
+    <button onclick="placeOrder()">Place Order</button>
+    <button onclick="fetchOrders()">Fetch Orders</button>
+    <button onclick="fetchHoldings()">Fetch Holdings</button>
+
+    <div id="orders"></div>
+    <div id="holdings"></div>
+
+    <script>
+        async function placeOrder() {
+            try {
+                let response = await fetch('/place-order', { method: 'POST' });
+                let data = await response.json();
+                if (response.ok) {
+                    alert("Order placed successfully: " + JSON.stringify(data, null, 2));
+                } else {
+                    alert("Error: " + data.detail);
+                }
+            } catch (error) {
+                alert("Network error while placing order.");
+            }
+        }
+
+        async function fetchOrders() {
+            try {
+                let response = await fetch('/orders');
+                let data = await response.json();
+                let orders = data.orders;
+
+                let tableHTML = "<table><tr><th>Order ID</th><th>Status</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Time</th></tr>";
+
+                orders.forEach(order => {
+                    tableHTML += `<tr>
+                        <td>${order.orderId}</td>
+                        <td>${order.orderStatus}</td>
+                        <td>${order.tradingSymbol}</td>
+                        <td>${order.quantity}</td>
+                        <td>${order.price}</td>
+                        <td>${order.createTime}</td>
+                    </tr>`;
+                });
+
+                tableHTML += "</table>";
+                document.getElementById("orders").innerHTML = tableHTML;
+            } catch (error) {
+                alert("Error fetching orders.");
+            }
+        }
+
+        async function fetchHoldings() {
+            try {
+                let response = await fetch('/holdings');
+                let data = await response.json();
+                let holdings = data.holdings;
+
+                let tableHTML = "<table><tr><th>Security ID</th><th>Symbol</th><th>Quantity</th><th>Avg Price</th><th>Current Price</th><th>Profit/Loss</th></tr>";
+
+                holdings.forEach(holding => {
+                    let profitLoss = ((holding.lastTradedPrice - holding.avgCostPrice) * holding.totalQty).toFixed(2);
+                    let profitLossColor = profitLoss >= 0 ? 'green' : 'red';
+
+                    tableHTML += `<tr>
+                        <td>${holding.securityId}</td>
+                        <td>${holding.tradingSymbol}</td>
+                        <td>${holding.totalQty}</td>
+                        <td>${holding.avgCostPrice.toFixed(2)}</td>
+                        <td>${holding.lastTradedPrice.toFixed(2)}</td>
+                        <td style="color: ${profitLossColor};">${profitLoss}</td>
+                    </tr>`;
+                });
+
+                tableHTML += "</table>";
+                document.getElementById("holdings").innerHTML = tableHTML;
+            } catch (error) {
+                alert("Error fetching holdings.");
+            }
+        }
+    </script>
+</body>
+</html>

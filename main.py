@@ -4,6 +4,9 @@ import logging
 from dotenv import load_dotenv
 from dhanhq import dhanhq
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.requests import Request
 
 # Load environment variables
 load_dotenv()
@@ -16,13 +19,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # Initialize FastAPI app
 app = FastAPI()
 
+# Serve templates
+templates = Jinja2Templates(directory="templates")
+
+# Serve static files (if needed later for CSS, JS, images)
+# app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Initialize API connection
 try:
     dhan = dhanhq(api_key, password)
     logging.info("Successfully connected to DhanHQ API")
 except Exception as e:
     logging.error(f"Error initializing DhanHQ API: {str(e)}")
-    dhan = None  # Prevents the app from crashing if API initialization fails
+    dhan = None  # Prevents app crash if API initialization fails
+
+# 🏷️ Serve HTML UI
+@app.get("/", response_class=HTMLResponse)
+async def homepage(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 # 🏷️ API to place an order
 @app.post("/place-order")
@@ -61,69 +75,17 @@ async def get_orders():
         logging.error(f"Fetching orders failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Fetching orders failed: {str(e)}")
 
-# 🏷️ Basic UI for placing orders and fetching them
-@app.get("/", response_class=HTMLResponse)
-async def homepage():
-    return """
-    <html>
-        <head>
-            <title>DhanHQ Trading Dashboard</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
-                h1 { color: #333; }
-                button { padding: 10px 15px; font-size: 16px; margin: 10px; cursor: pointer; }
-                table { width: 90%; margin: 20px auto; border-collapse: collapse; background: white; }
-                th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
-                th { background: #007bff; color: white; }
-                tr:nth-child(even) { background: #f9f9f9; }
-            </style>
-            <script>
-                async function placeOrder() {
-                    try {
-                        let response = await fetch('/place-order', { method: 'POST' });
-                        let data = await response.json();
-                        if (response.ok) {
-                            alert("Order placed successfully: " + JSON.stringify(data, null, 2));
-                        } else {
-                            alert("Error: " + data.detail);
-                        }
-                    } catch (error) {
-                        alert("Network error while placing order.");
-                    }
-                }
+# 🏷️ API to fetch holdings
+@app.get("/holdings")
+async def get_holdings():
+    if not dhan:
+        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
 
-                async function fetchOrders() {
-                    try {
-                        let response = await fetch('/orders');
-                        let data = await response.json();
-                        let orders = data.orders;
-                        let tableHTML = "<table><tr><th>Order ID</th><th>Status</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Time</th></tr>";
-
-                        orders.forEach(order => {
-                            tableHTML += `<tr>
-                                <td>${order.orderId}</td>
-                                <td>${order.orderStatus}</td>
-                                <td>${order.tradingSymbol}</td>
-                                <td>${order.quantity}</td>
-                                <td>${order.price}</td>
-                                <td>${order.createTime}</td>
-                            </tr>`;
-                        });
-
-                        tableHTML += "</table>";
-                        document.getElementById("orders").innerHTML = tableHTML;
-                    } catch (error) {
-                        alert("Error fetching orders.");
-                    }
-                }
-            </script>
-        </head>
-        <body>
-            <h1>DhanHQ Trading Dashboard</h1>
-            <button onclick="placeOrder()">Place Order</button>
-            <button onclick="fetchOrders()">Fetch Orders</button>
-            <div id="orders"></div>
-        </body>
-    </html>
-    """
-
+    try:
+        response = dhan.get_holdings()
+        holdings = response.get("data", [])
+        logging.info(f"Fetched {len(holdings)} holdings")
+        return {"holdings": holdings}
+    except Exception as e:
+        logging.error(f"Fetching holdings failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fetching holdings failed: {str(e)}")
