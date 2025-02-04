@@ -114,21 +114,42 @@ def get_expiry_date():
     print(expiry_date)
     return expiry_date.strftime("%d/%m/%Y")
 
+def get_last_thursday_of_month():
+    """Find the last Thursday of the current month."""
+    today = datetime.date.today()
+    year = today.year
+    month = today.month
+    
+    # Find the last day of the month
+    next_month = month % 12 + 1
+    year_adjusted = year + (1 if next_month == 1 else 0)
+    first_day_next_month = datetime.date(year_adjusted, next_month, 1)
+    last_day_this_month = first_day_next_month - datetime.timedelta(days=1)
+    
+    # Find the last Thursday
+    days_to_thursday = (last_day_this_month.weekday() - 3) % 7
+    last_thursday = last_day_this_month - datetime.timedelta(days=days_to_thursday)
+    
+    print(f"Last Thursday of the month: {last_thursday}")
+    return last_thursday.strftime("%d/%m/%Y")
+
 def generate_prompt(text):
     """Generate a structured prompt to extract the required trading details."""
     today_date = datetime.date.today().strftime("%d/%m/%Y")
-    expiry_date = get_expiry_date()
+    weekly_expiry_date = get_expiry_date()
+    monthly_expiry_date = get_last_thursday_of_month()
 
     return f"""
-    Extract structured trading information from the given text. Year should always be 2025
+    Extract structured trading information from the given text. 
+    datelogic = Year should always be 2025. If weekly is mentioned then print {weekly_expiry_date} in expiry, if nothing is mentioned or monthly is mentioned then print {monthly_expiry_date}. date should always be in dd/mm/yyyy format
 
     **Input Text:** "{text}"
 
     **Expected Output JSON:**
     {{
         "symbol": "<Extracted Symbol>",  # Should be in this format only: NIFTY followed by which month and yyyy followed by the 5 digit price followed by ce or pe "NIFTY-Feb2025-23800-CE"
-        "date": "{today_date}", #should be in dd/mm/yy format only (also based on month decision above)
-        "expiry": "{expiry_date}", #similarly change month based on date above
+        "date": "{today_date}", #should be in dd/mm/yy format only (also based on month decision above) (this is todays date as given in prompt input)
+        "expiry": "datelogin", #similarly change month based on date above. 
         "Buy1": <Lowest Buy Price>,
         "Buy2": <Second Lowest Buy Price>,
         "SL1": <Highest SL>,
@@ -137,7 +158,7 @@ def generate_prompt(text):
         "Target2": <Second Closest Target>
     }}
 
-    Ensure the values are correctly extracted and formatted from the input text.
+    Ensure the values are correctly extracted and formatted from the input text. Dont give any pre and post explanation. Just the output. 
     """
 
 async def call_chatgpt(prompt):
