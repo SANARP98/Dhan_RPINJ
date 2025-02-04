@@ -149,7 +149,7 @@ def generate_prompt(text):
     {{
         "symbol": "<Extracted Symbol>",  # Should be in this format only: NIFTY followed by which month and yyyy followed by the 5 digit price followed by ce or pe "NIFTY-Feb2025-23800-CE"
         "date": "{today_date}", #should be in dd/mm/yy format only (also based on month decision above) (this is todays date as given in prompt input)
-        "expiry": "datelogin", #similarly change month based on date above. 
+        "expiry": "datelogin", #similarly change month based on date above. This should be either weekly expiry date mentioned in prompt or monthly expiry date mentioned in prompt.
         "Buy1": <Lowest Buy Price>,
         "Buy2": <Second Lowest Buy Price>,
         "SL1": <Highest SL>,
