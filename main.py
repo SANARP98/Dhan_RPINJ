@@ -16,15 +16,15 @@ import sqlite3
 import json
 import re
 
+
 # Load environment variables
 load_dotenv()
 api_key = os.getenv("DHAN_API_KEY")
 password = os.getenv("DHAN_PASSWORD")
 
-# --- OpenAI Setup ---
-# OpenAI recommended usage is simply setting the api_key as below:
-
 DB_PATH = "options.db"
+SECURITY_ID = None  # or a default value, e.g. "44903"
+
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -37,9 +37,6 @@ submitted_text = ""
 
 # Templates
 templates = Jinja2Templates(directory="templates")
-
-# Serve static files (if needed)
-# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Initialize Dhan API connection
 try:
@@ -57,28 +54,73 @@ async def homepage(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 # -------------------------------------------------------------------
-# 2) Place Order
+# 2) Place Order (modified logic)
 # -------------------------------------------------------------------
 @app.post("/place-order")
 async def place_order():
+    global SECURITY_ID  # So we can reassign it
+
     if not dhan:
         raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
 
     try:
-        order = dhan.place_order(
-            security_id="44903",
-            exchange_segment=dhan.NSE_FNO,
-            transaction_type=dhan.BUY,
-            quantity=75,
-            order_type=dhan.LIMIT,
-            product_type=dhan.MARGIN,
-            price=0.1
-        )
-        logging.info(f"Order placed: {order}")
-        return {"message": "Order placed successfully", "order": order}
+        # 1) Fetch current orders
+        existing_orders_response = dhan.get_order_list()
+        all_orders = existing_orders_response.get("data", [])
+
+        # --- A) Get the securityId from the FIRST pending order and store it in SECURITY_ID ---
+        pending_orders = [o for o in all_orders if o.get("orderStatus") == "PENDING"]
+        if pending_orders:
+            SECURITY_ID = pending_orders[0].get("securityId")  # First PENDING order's security ID
+            logging.info(f"Setting SECURITY_ID to the first pending order: {SECURITY_ID}")
+        else:
+            logging.info("No pending orders found to extract a securityId from.")
+
+        # --- B) Now do your existing logic that checks if there's an open/active order for SECURITY_ID ---
+        open_orders_for_security = [
+            o for o in all_orders
+            if o.get("securityId") == SECURITY_ID
+            and o.get("orderStatus") in ["OPEN", "TRANSIT", "PARTIALLY_FILLED", "PENDING"]
+        ]
+
+        if open_orders_for_security:
+            order_to_modify = open_orders_for_security[0]
+            order_id = order_to_modify.get("orderId")
+
+            modified_order = dhan.modify_order(
+                order_id=order_id,
+                order_type=dhan.LIMIT,
+                leg_name="ENTRY_LEG", 
+                quantity=75,
+                price=0.2,
+                trigger_price=0,
+                disclosed_quantity=0,
+                validity=dhan.DAY
+            )
+            logging.info(f"Order modified: {modified_order}")
+            return {
+                "message": "Order modified instead of placing a new one.",
+                "modified_order": modified_order
+            }
+        else:
+            order = dhan.place_order(
+                security_id=SECURITY_ID,
+                exchange_segment=dhan.NSE_FNO,
+                transaction_type=dhan.BUY,
+                quantity=75,
+                order_type=dhan.LIMIT,
+                product_type=dhan.MARGIN,
+                price=0.1
+            )
+            logging.info(f"Order placed: {order}")
+            return {
+                "message": "No open order found; new order placed successfully.",
+                "order": order
+            }
+
     except Exception as e:
-        logging.error(f"Order placement failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
+        logging.error(f"Order placement/modification failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Order placement/modification failed: {str(e)}")
 
 # -------------------------------------------------------------------
 # 3) Get Orders
@@ -147,13 +189,11 @@ def get_last_thursday_of_month():
     year = today.year
     month = today.month
 
-    # Next month logic
-    next_month = month % 12 + 1
+    next_month = (month % 12) + 1
     year_adjusted = year + (1 if next_month == 1 else 0)
     first_day_next_month = datetime.date(year_adjusted, next_month, 1)
     last_day_this_month = first_day_next_month - datetime.timedelta(days=1)
 
-    # Find the last Thursday
     days_to_thursday = (last_day_this_month.weekday() - 3) % 7
     last_thursday = last_day_this_month - datetime.timedelta(days=days_to_thursday)
     return last_thursday.strftime("%d/%m/%Y")
@@ -170,17 +210,13 @@ def generate_prompt(text: str) -> str:
 
     return f"""
     Extract structured trading information from the given text. 
-    datelogic = Year should always be 2025. If 'weekly' is mentioned then print {weekly_expiry_date} in expiry, 
-    if nothing is mentioned or 'monthly' is mentioned then print {monthly_expiry_date}. 
-    date should always be in dd/mm/yyyy format
-
+    datelogic = Year should always be 2025. If weekly is mentioned then print {weekly_expiry_date} in expiry, if nothing is mentioned or monthly is mentioned then print {monthly_expiry_date}. date should always be in dd/mm/yyyy format
     **Input Text:** "{text}"
-
     **Expected Output JSON:**
     {{
-        "symbol": "<Extracted Symbol>",  
-        "date": "{today_date}", 
-        "expiry": "datelogic", 
+        "symbol": "<Extracted Symbol>",  # Should be in this format only: NIFTY followed by which month and yyyy followed by the 5 digit price followed by ce or pe "NIFTY-Feb2025-23800-CE"
+        "date": "{today_date}",
+        "expiry": "datelogin",
         "Buy1": <Lowest Buy Price>,
         "Buy2": <Second Lowest Buy Price>,
         "SL1": <Highest SL>,
@@ -188,17 +224,18 @@ def generate_prompt(text: str) -> str:
         "Target1": <First Closest Target>,
         "Target2": <Second Closest Target>
     }}
-
-    Dont give any explanation. Just valid JSON as output. 
+    Ensure the values are correctly extracted and formatted from the input text. Dont give any pre and post explanation. Just the output. 
     """
 
 async def call_chatgpt(prompt: str) -> str:
     """Call OpenAI ChatCompletion API with the prompt and return the response text."""
-    response = client.chat.completions.create(model="gpt-4", 
-    messages=[
-        {"role": "system", "content": "You are an expert in financial data extraction."},
-        {"role": "user", "content": prompt}
-    ])
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are an expert in financial data extraction."},
+            {"role": "user", "content": prompt}
+        ]
+    )
     return response.choices[0].message.content
 
 def format_expiry_date(expiry: str) -> str:
@@ -206,8 +243,6 @@ def format_expiry_date(expiry: str) -> str:
     try:
         return datetime.datetime.strptime(expiry, "%d/%m/%Y").strftime("%Y-%m-%d")
     except ValueError:
-        # If we can't parse it, just return original. 
-        # (But ideally, you'd want to handle parsing errors more robustly)
         return expiry
 
 def search_options_in_db(symbol: str, expiry: str) -> dict:
@@ -278,16 +313,17 @@ def search_options_in_db(symbol: str, expiry: str) -> dict:
         }
 
 # -------------------------------------------------------------------
-# 7) Main Endpoint to submit text and place an order
+# 7) Main Endpoint to submit text and place an order (modified logic)
 # -------------------------------------------------------------------
 @app.post("/submit-text")
 async def submit_text(input_data: TextInput):
     """
-    1) Generate a GPT prompt from the input text
-    2) Parse GPT response to structured JSON
-    3) Search the DB for the symbol/expiry
-    4) Place an order if we have valid match
-    5) Return JSON with info
+    Updated logic:
+    1) Generate GPT prompt and parse GPT response.
+    2) Search DB for symbol/expiry.
+    3) If found, BEFORE placing a new order, check if an open order for same securityId exists.
+       - If open, modify that order instead of placing a new one.
+       - Else, place a new order.
     """
     if not dhan:
         raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
@@ -323,7 +359,6 @@ async def submit_text(input_data: TextInput):
             detail=f"Database error: {matching_options['error']}"
         )
 
-    # If the DB says "Symbol not found" or "Symbol found, but no matching expiry"
     if "data" not in matching_options or not matching_options["data"]:
         return {
             "message": "Cannot place order because no exact symbol+expiry match in DB.",
@@ -331,31 +366,68 @@ async def submit_text(input_data: TextInput):
             "db_search_result": matching_options
         }
 
-    # We have valid data, so let's place the order with the first matching row
+    # We have valid data, so let's attempt to place/modify the order
     first_match = matching_options["data"][0]
-    security_id = first_match[0]  # The first column in your "options" table
+    global SECURITY_ID
+    SECURITY_ID = first_match[0]
 
-    # --- Step 4: Place the order (handle potential API errors) ---
+
     try:
-        order = dhan.place_order(
-            security_id=security_id,
-            exchange_segment=dhan.NSE_FNO,
-            transaction_type=dhan.BUY,
-            quantity=75,          # TODO: Make sure this is correct lot size
-            order_type=dhan.LIMIT,
-            product_type=dhan.MARGIN,
-            price=0.1             # Hard-coded example
-        )
-        logging.info(f"Order placed: {order}")
+        # -- Check for open orders for this security_id
+        existing_orders_response = dhan.get_order_list()
+        all_orders = existing_orders_response.get("data", [])
 
-        return {
-            "message": "Order placed successfully",
-            "symbol": symbol,
-            "expiry": expiry,
-            "order": order,
-            "structured_data": structured_data
-        }
+        open_orders_for_security = [
+            o for o in all_orders
+            if o.get("securityId") == SECURITY_ID
+            and o.get("orderStatus") in ["OPEN", "TRANSIT", "PARTIALLY_FILLED", "PENDING"]
+        ]
+
+        if open_orders_for_security:
+            # Modify the first open order
+            order_to_modify = open_orders_for_security[0]
+            order_id = order_to_modify.get("orderId")
+
+            modified_order = dhan.modify_order(
+                order_id=order_id,
+                order_type=dhan.LIMIT,
+                leg_name="ENTRY_LEG", 
+                quantity=75,           # You can adjust quantity as needed
+                price=0.2,            # Example new price
+                trigger_price=0, 
+                disclosed_quantity=0, 
+                validity=dhan.DAY
+            )
+            logging.info(f"Order modified: {modified_order}")
+
+            return {
+                "message": "Found existing open order. Modified that order instead of placing new.",
+                "symbol": symbol,
+                "expiry": expiry,
+                "order": modified_order,
+                "structured_data": structured_data
+            }
+        else:
+            # Place a new order
+            order = dhan.place_order(
+                security_id=SECURITY_ID,
+                exchange_segment=dhan.NSE_FNO,
+                transaction_type=dhan.BUY,
+                quantity=75,          # Make sure this is correct lot size
+                order_type=dhan.LIMIT,
+                product_type=dhan.MARGIN,
+                price=0.1             # Hard-coded example
+            )
+            logging.info(f"Order placed: {order}")
+
+            return {
+                "message": "No existing open order found; placed a new order.",
+                "symbol": symbol,
+                "expiry": expiry,
+                "order": order,
+                "structured_data": structured_data
+            }
 
     except Exception as e:
-        logging.error(f"Order placement failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
+        logging.error(f"Order placement/modification failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Order placement/modification failed: {str(e)}")
