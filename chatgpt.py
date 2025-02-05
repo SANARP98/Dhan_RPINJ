@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import datetime
-import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 import os
 
 # Initialize FastAPI app
@@ -9,7 +11,6 @@ app = FastAPI()
 
 # OpenAI API Key (Replace 'your-api-key' with an actual API key)
 OPENAI_API_KEY = "your-api-key"
-openai.api_key = OPENAI_API_KEY
 
 # Define request model
 class TextInput(BaseModel):
@@ -50,12 +51,10 @@ def generate_prompt(text):
 
 async def call_chatgpt(prompt):
     """Calls OpenAI API with the generated prompt."""
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "system", "content": "You are an expert in financial data extraction."},
-                  {"role": "user", "content": prompt}]
-    )
-    return response["choices"][0]["message"]["content"]
+    response = client.chat.completions.create(model="gpt-4",
+    messages=[{"role": "system", "content": "You are an expert in financial data extraction."},
+              {"role": "user", "content": prompt}])
+    return response.choices[0].message.content
 
 @app.post("/submit-text")
 async def submit_text(input_data: TextInput):

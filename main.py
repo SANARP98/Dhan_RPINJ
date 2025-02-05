@@ -8,7 +8,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 from pydantic import BaseModel
-import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 import datetime
 import sqlite3
 import json
@@ -21,7 +23,6 @@ password = os.getenv("DHAN_PASSWORD")
 
 # --- OpenAI Setup ---
 # OpenAI recommended usage is simply setting the api_key as below:
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 DB_PATH = "options.db"
 
@@ -193,13 +194,11 @@ def generate_prompt(text: str) -> str:
 
 async def call_chatgpt(prompt: str) -> str:
     """Call OpenAI ChatCompletion API with the prompt and return the response text."""
-    response = openai.ChatCompletion.create(
-        model="gpt-4", 
-        messages=[
-            {"role": "system", "content": "You are an expert in financial data extraction."},
-            {"role": "user", "content": prompt}
-        ]
-    )
+    response = client.chat.completions.create(model="gpt-4", 
+    messages=[
+        {"role": "system", "content": "You are an expert in financial data extraction."},
+        {"role": "user", "content": prompt}
+    ])
     return response.choices[0].message.content
 
 def format_expiry_date(expiry: str) -> str:
