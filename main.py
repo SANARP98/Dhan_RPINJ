@@ -13,6 +13,7 @@ import datetime
 import sqlite3
 import json
 import re
+import datetime 
 
 # Load environment variables
 load_dotenv()
@@ -156,7 +157,7 @@ def clean_gpt_response(response):
 
 def generate_prompt(text):
     """Generate a structured prompt to extract the required trading details."""
-    today_date = datetime.date.today().strftime("%d/%m/%Y")
+    today_date = datetime.datetime.today().strftime("%d/%m/%Y")
     weekly_expiry_date = get_expiry_date()
     monthly_expiry_date = get_last_thursday_of_month()
 
@@ -194,46 +195,75 @@ async def call_chatgpt(prompt):
     return response.choices[0].message.content
 
 def search_options_in_db(symbol: str, expiry: str):
-    """Searches for options in the database using SYMBOL_NAME and SM_EXPIRY_DATE."""
+
+    """Checks if a symbol exists in DB, prints all rows, and then verifies expiry match."""
+    if not os.path.exists(DB_PATH):
+        print("Error: options.db not found in the current directory!")
+        return {"error": "Database file not found"}
+
+    # Connect to the SQLite database
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Dynamically get column names
+    # Get column names dynamically
     cursor.execute("PRAGMA table_info(options)")
-    columns = [col[1] for col in cursor.fetchall()]  # Fetch column names
+    columns = [col[1] for col in cursor.fetchall()]
     print(f"Database Columns: {columns}")  # Debugging
 
     if "SYMBOL_NAME" not in columns or "SM_EXPIRY_DATE" not in columns:
         print("Error: Required columns not found in the database.")
         conn.close()
-        return []
+        return {"error": "Required columns not found in database"}
 
-    # Ensure the correct column names
+    # Define column names explicitly
     symbol_column = "SYMBOL_NAME"
     expiry_column = "SM_EXPIRY_DATE"
 
-    # ✅ Fix: Ensure case-insensitive comparison for SYMBOL_NAME and exact match for expiry
-    query = f"""
+    # Ensure correct format for expiry
+    formatted_expiry = format_expiry_date(expiry)
+    print(f"Checking Expiry: Given='{expiry}', Formatted='{formatted_expiry}'\n")
+
+    # ✅ Step 1: Find all rows with the SYMBOL
+    query_symbol = f"""
         SELECT * FROM options
         WHERE LOWER(TRIM(REPLACE({symbol_column}, '-', ''))) = LOWER(TRIM(REPLACE(?, '-', '')))
-        AND {expiry_column} = ?
     """
+    cursor.execute(query_symbol, (symbol,))
+    symbol_results = cursor.fetchall()
 
-    print(f"Executing Query: {query}")  # Debugging query
-    print(f"Parameters: Symbol='{symbol}', Expiry='{expiry}'")  # Debugging parameters
+    if not symbol_results:
+        conn.close()
+        return {"message": "Symbol not found", "symbol": symbol}
 
-    cursor.execute(query, (symbol, expiry))
-    results = cursor.fetchall()
+    print("\n🔹 All Rows Matching Symbol:")
+    for row in symbol_results:
+        print(row)  # Print all rows where the symbol exists
+
+    # ✅ Step 2: Check if EXPIRY exists for the given SYMBOL (Ignoring Time)
+    query_expiry = f"""
+        SELECT * FROM options
+        WHERE LOWER(TRIM(REPLACE({symbol_column}, '-', ''))) = LOWER(TRIM(REPLACE(?, '-', '')))
+        AND DATE({expiry_column}) = ?
+    """
+    cursor.execute(query_expiry, (symbol, formatted_expiry))
+    expiry_results = cursor.fetchall()
     conn.close()
 
-    return results
+    if expiry_results:
+        return {"message": "Symbol and expiry found", "data": expiry_results}
+    else:
+        return {
+            "message": "Symbol found, but no matching expiry",
+            "symbol": symbol,
+            "expiry": formatted_expiry,
+            "all_matching_rows": symbol_results  # Show all rows with the symbol
+        }
 
-from datetime import datetime
 
 def format_expiry_date(expiry: str):
     """Convert DD/MM/YYYY to YYYY-MM-DD for SQL comparison."""
     try:
-        return datetime.strptime(expiry, "%d/%m/%Y").strftime("%Y-%m-%d")
+        return datetime.datetime.strptime(expiry, "%d/%m/%Y").strftime("%Y-%m-%d")
     except ValueError:
         return expiry
 
@@ -265,6 +295,26 @@ async def submit_text(input_data: TextInput):
     # Search in database
     matching_options = search_options_in_db(symbol, expiry)
     print(matching_options)
+
+    if not dhan:
+        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+
+    try:
+        order = dhan.place_order(
+            security_id=matching_options["data"][0][0],
+            exchange_segment=dhan.NSE_FNO,
+            transaction_type=dhan.BUY,
+            quantity=75,
+            order_type=dhan.LIMIT,
+            product_type=dhan.MARGIN,
+            price=0.1
+        )
+        logging.info(f"Order placed: {order}")
+        return {"message": "Order placed successfully", "order": order}
+    except Exception as e:
+        logging.error(f"Order placement failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
+
 
     return {
         "message": "Text processed and options searched successfully",
