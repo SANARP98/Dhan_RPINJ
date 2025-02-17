@@ -3,9 +3,9 @@ from pydantic import BaseModel
 import datetime
 from openai import OpenAI
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+# client = OpenAI(api_key=OPENAI_API_KEY)
 import os
-
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Initialize FastAPI app
 app = FastAPI()
 
