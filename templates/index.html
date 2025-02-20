@@ -155,7 +155,7 @@
           messageEl.classList.add("text-green-600");
           document.getElementById("apiKeyInput").value = "";
           document.getElementById("passwordInput").value = "";
-          fetchAccounts(); // Refresh UI
+          fetchAccounts();
         } else {
           messageEl.textContent = "Error: " + (data.error || "Unknown error");
           messageEl.classList.remove("text-green-600");
@@ -167,8 +167,7 @@
     }
 
     async function fetchAccounts() {
-      // Since accounts are managed server-side, we'll rely on API calls to reflect changes
-      fetchOrders(); // Refresh orders to reflect new accounts
+      fetchOrders();
       fetchHoldings();
       fetchPositions();
     }
@@ -264,7 +263,7 @@
         const response = await fetch('/cancel-all-orders', { method: 'POST' });
         const data = await response.json();
         alert("Cancel All Response: " + JSON.stringify(data));
-        fetchOrders(); // Refresh orders
+        fetchOrders();
       } catch (error) {
         alert("Error canceling orders: " + error);
       }
@@ -364,9 +363,8 @@
       return html + "</tbody></table>";
     }
 
-    // Initial fetch to load existing accounts from .env (if needed)
     window.onload = () => {
-      fetchAccounts(); // Load initial state
+      fetchAccounts();
     };
   </script>
 </body>

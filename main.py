@@ -3,9 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
-from dhanhq import dhanhq
-from openai import OpenAI
+from dotenv import load_dotenv, set_key
 import os
 import logging
 import sqlite3
@@ -13,7 +11,9 @@ from contextlib import contextmanager
 import datetime
 import json
 import re
-from typing import Dict, List
+from typing import Dict
+from dhanhq import dhanhq
+from openai import OpenAI
 
 # -----------------------------
 # Configuration
@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"  # Allow extra fields like DHAN_API_KEY, etc.
 
 settings = Settings()
 load_dotenv()
@@ -39,8 +40,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# In-memory storage for accounts (could be replaced with a DB)
+# In-memory storage for accounts
 accounts: Dict[str, dhanhq] = {}
+
+# Load existing accounts from .env on startup
+def load_accounts_from_env():
+    i = 1
+    while True:
+        api_key = os.getenv(f"DHAN_API_KEY{i}" if i > 1 else "DHAN_API_KEY")
+        password = os.getenv(f"DHAN_PASSWORD{i}" if i > 1 else "DHAN_PASSWORD")
+        if not api_key or not password:
+            break
+        try:
+            client = dhanhq(api_key, password)
+            accounts[api_key] = client
+            logging.info(f"Loaded account {api_key} from .env")
+        except Exception as e:
+            logging.error(f"Failed to load account {api_key}: {str(e)}")
+        i += 1
+
+load_accounts_from_env()
 
 class Database:
     def __init__(self, db_path):
@@ -191,6 +210,20 @@ async def place_or_modify_order(dhan_client, security_id: str, account_id: str, 
     except Exception as e:
         return {account_id: {"error": f"Order operation failed: {str(e)}"}}
 
+def update_env_file(api_key: str, password: str):
+    env_file = ".env"
+    existing_keys = {k for k in os.environ.keys() if k.startswith("DHAN_API_KEY")}
+    max_index = max([int(k.replace("DHAN_API_KEY", "")) for k in existing_keys if k != "DHAN_API_KEY"] or [0]) + 1 if len(existing_keys) > 1 else 1
+    
+    key_name = f"DHAN_API_KEY{max_index}" if max_index > 1 or "DHAN_API_KEY" in os.environ else "DHAN_API_KEY"
+    password_name = f"DHAN_PASSWORD{max_index}" if max_index > 1 or "DHAN_PASSWORD" in os.environ else "DHAN_PASSWORD"
+    
+    set_key(env_file, key_name, api_key)
+    set_key(env_file, password_name, password)
+    os.environ[key_name] = api_key
+    os.environ[password_name] = password
+    logging.info(f"Updated .env with {key_name} and {password_name}")
+
 # -----------------------------
 # Endpoints
 # -----------------------------
@@ -200,13 +233,14 @@ async def homepage(request: Request):
 
 @app.post("/add-account", response_model=dict)
 async def add_account(req: AddAccountRequest):
-    account_id = req.api_key  # Using API key as unique identifier
+    account_id = req.api_key
     if account_id in accounts:
         return handle_error("Account already exists", 400)
     
     try:
         dhan_client = dhanhq(req.api_key, req.password)
         accounts[account_id] = dhan_client
+        update_env_file(req.api_key, req.password)
         logging.info(f"Account {account_id} added successfully.")
         return {"message": f"Account {account_id} added successfully"}
     except Exception as e:
