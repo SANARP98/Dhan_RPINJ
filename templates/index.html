@@ -65,7 +65,7 @@
     tr:nth-child(even) {
       background: #f9f9f9;
     }
-    #orders1, #orders2, 
+    #orders1, #orders2,
     #holdings1, #holdings2,
     #positions1, #positions2 {
       margin-bottom: 40px;
@@ -85,7 +85,7 @@
   <button onclick="fetchPositions()">Fetch Positions</button>
   <button onclick="cancelAllOrders()">Cancel All Open Orders</button>
 
-  <!-- Container for Orders -->
+  <!-- Orders -->
   <div class="account-section">
     <h2>Account 1 Orders</h2>
     <div id="orders1"></div>
@@ -95,7 +95,7 @@
     <div id="orders2"></div>
   </div>
 
-  <!-- Container for Holdings -->
+  <!-- Holdings -->
   <div class="account-section">
     <h2>Account 1 Holdings</h2>
     <div id="holdings1"></div>
@@ -105,7 +105,7 @@
     <div id="holdings2"></div>
   </div>
 
-  <!-- Container for Positions -->
+  <!-- Positions -->
   <div class="account-section">
     <h2>Account 1 Positions</h2>
     <div id="positions1"></div>
@@ -116,9 +116,7 @@
   </div>
 
   <script>
-    // -----------------------------------------
     // 1) SUBMIT TEXT
-    // -----------------------------------------
     async function submitText() {
       let text = document.getElementById("textInput").value;
       if (!text.trim()) {
@@ -144,9 +142,7 @@
       }
     }
 
-    // -----------------------------------------
     // 2) PLACE/MODIFY ORDER
-    // -----------------------------------------
     async function placeOrder() {
       try {
         let response = await fetch('/place-order', { method: 'POST' });
@@ -162,31 +158,24 @@
       }
     }
 
-    // -----------------------------------------
     // 3) FETCH ORDERS (for both accounts)
-    // -----------------------------------------
     async function fetchOrders() {
       try {
         let response = await fetch('/orders');
         let data = await response.json();
-        console.log("fetchOrders data:", data);
-
         // Account 1
         let orders1Div = document.getElementById("orders1");
         if (data.account1 && data.account1.orders) {
-          let tableHTML = createOrdersTable(data.account1.orders);
-          orders1Div.innerHTML = tableHTML;
+          orders1Div.innerHTML = createOrdersTable(data.account1.orders);
         } else if (data.account1 && data.account1.error) {
           orders1Div.innerHTML = `<p style="color:red">${data.account1.error}</p>`;
         } else {
           orders1Div.innerHTML = "<p>No data for Account 1</p>";
         }
-
         // Account 2
         let orders2Div = document.getElementById("orders2");
         if (data.account2 && data.account2.orders) {
-          let tableHTML = createOrdersTable(data.account2.orders);
-          orders2Div.innerHTML = tableHTML;
+          orders2Div.innerHTML = createOrdersTable(data.account2.orders);
         } else if (data.account2 && data.account2.error) {
           orders2Div.innerHTML = `<p style="color:red">${data.account2.error}</p>`;
         } else {
@@ -197,30 +186,24 @@
       }
     }
 
-    // -----------------------------------------
     // 4) FETCH HOLDINGS (for both accounts)
-    // -----------------------------------------
     async function fetchHoldings() {
       try {
         let response = await fetch('/holdings');
         let data = await response.json();
-
         // Account 1
         let holdings1Div = document.getElementById("holdings1");
         if (data.account1 && data.account1.holdings) {
-          let tableHTML = createHoldingsTable(data.account1.holdings);
-          holdings1Div.innerHTML = tableHTML;
+          holdings1Div.innerHTML = createHoldingsTable(data.account1.holdings);
         } else if (data.account1 && data.account1.error) {
           holdings1Div.innerHTML = `<p style="color:red">${data.account1.error}</p>`;
         } else {
           holdings1Div.innerHTML = "<p>No data for Account 1</p>";
         }
-
         // Account 2
         let holdings2Div = document.getElementById("holdings2");
         if (data.account2 && data.account2.holdings) {
-          let tableHTML = createHoldingsTable(data.account2.holdings);
-          holdings2Div.innerHTML = tableHTML;
+          holdings2Div.innerHTML = createHoldingsTable(data.account2.holdings);
         } else if (data.account2 && data.account2.error) {
           holdings2Div.innerHTML = `<p style="color:red">${data.account2.error}</p>`;
         } else {
@@ -231,30 +214,26 @@
       }
     }
 
-    // -----------------------------------------
     // 5) FETCH POSITIONS (for both accounts)
-    // -----------------------------------------
     async function fetchPositions() {
       try {
         let response = await fetch('/positions');
         let data = await response.json();
-
         // Account 1
         let positions1Div = document.getElementById("positions1");
         if (data.account1 && data.account1.positions) {
-          let tableHTML = createPositionsTable(data.account1.positions);
-          positions1Div.innerHTML = tableHTML;
+          // pass '1' so we know which account
+          positions1Div.innerHTML = createPositionsTable(data.account1.positions, 1);
         } else if (data.account1 && data.account1.error) {
           positions1Div.innerHTML = `<p style="color:red">${data.account1.error}</p>`;
         } else {
           positions1Div.innerHTML = "<p>No data for Account 1</p>";
         }
-
         // Account 2
         let positions2Div = document.getElementById("positions2");
         if (data.account2 && data.account2.positions) {
-          let tableHTML = createPositionsTable(data.account2.positions);
-          positions2Div.innerHTML = tableHTML;
+          // pass '2' so we know which account
+          positions2Div.innerHTML = createPositionsTable(data.account2.positions, 2);
         } else if (data.account2 && data.account2.error) {
           positions2Div.innerHTML = `<p style="color:red">${data.account2.error}</p>`;
         } else {
@@ -265,23 +244,88 @@
       }
     }
 
-    // -----------------------------------------
-    // 6) CANCEL ALL OPEN ORDERS (for both)
-    // -----------------------------------------
+    // 6) CANCEL ALL OPEN ORDERS
     async function cancelAllOrders() {
       try {
         let response = await fetch('/cancel-all-orders', { method: 'POST' });
         let data = await response.json();
-        console.log("cancelAllOrders data:", data);
         alert("Cancel-All Response:\n" + JSON.stringify(data, null, 2));
       } catch (error) {
         alert("Error canceling all orders: " + error);
       }
     }
 
-    // ----------------------------------------------------------------
-    // Helpers to build tables for Orders, Holdings, Positions
-    // ----------------------------------------------------------------
+    // 7) CLOSE-POSITION HELPERS (MKT/LMT)
+    async function closeMarketPosition(account, securityId, netQty) {
+      if (!confirm("Close this position at MARKET?")) {
+        return;
+      }
+      let payload = {
+        account: account,
+        securityId: securityId,
+        netQty: netQty,
+        orderType: "MARKET",
+        price: 0
+      };
+
+      try {
+        let resp = await fetch("/close-position", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        let data = await resp.json();
+        if (!resp.ok) {
+          alert("Error closing position: " + JSON.stringify(data));
+        } else {
+          alert("Close Market success: " + JSON.stringify(data, null, 2));
+          // Optionally auto-refresh positions
+          // fetchPositions();
+        }
+      } catch (err) {
+        alert("Error: " + err);
+      }
+    }
+
+    async function closeLimitPosition(account, securityId, netQty) {
+      let limitPrice = prompt("Enter Limit Price to close position:");
+      if (!limitPrice) {
+        return; // user canceled
+      }
+      let priceNum = parseFloat(limitPrice);
+      if (isNaN(priceNum) || priceNum <= 0) {
+        alert("Invalid price entered.");
+        return;
+      }
+
+      let payload = {
+        account: account,
+        securityId: securityId,
+        netQty: netQty,
+        orderType: "LIMIT",
+        price: priceNum
+      };
+
+      try {
+        let resp = await fetch("/close-position", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        let data = await resp.json();
+        if (!resp.ok) {
+          alert("Error closing position with limit: " + JSON.stringify(data));
+        } else {
+          alert("Close Limit success: " + JSON.stringify(data, null, 2));
+          // Optionally auto-refresh positions
+          // fetchPositions();
+        }
+      } catch (err) {
+        alert("Error: " + err);
+      }
+    }
+
+    // ------------------ TABLE BUILDERS ------------------
     function createOrdersTable(orders) {
       if (!orders || !Array.isArray(orders) || orders.length === 0) {
         return "<p>No orders found.</p>";
@@ -352,56 +396,62 @@
       return tableHTML;
     }
 
-    function createPositionsTable(positions) {
-        if (!positions || !Array.isArray(positions) || positions.length === 0) {
-          return "<p>No positions found.</p>";
-        }
-    
-        let tableHTML = `
-          <table>
-            <tr>
-              <th>Trading Symbol</th>
-              <th>Product Type</th>
-              <th>Net Qty</th>
-              <th>Buy Avg Price</th>
-              <th>Sell Avg Price</th>
-              <th>PnL</th>
-            </tr>
-        `;
-    
-        positions.forEach((p) => {
-          // Use field names exactly as they appear in your response
-          let symbol = p.tradingSymbol || "";
-          let productType = p.productType || "";
-          let netQty = p.netQty || 0;
-    
-          // From your printed JSON, "buyAvg" and "sellAvg" are the correct fields
-          let buyAvg = p.buyAvg || 0;
-          let sellAvg = p.sellAvg || 0;
-    
-          // For PnL, you can combine realized + unrealized if desired:
-          let realized = p.realizedProfit || 0;
-          let unrealized = p.unrealizedProfit || 0;
-          let totalPL = realized + unrealized;
-    
-          // Color the PnL red or green
-          let plColor = totalPL >= 0 ? 'green' : 'red';
-    
-          tableHTML += `
-            <tr>
-              <td>${symbol}</td>
-              <td>${productType}</td>
-              <td>${netQty}</td>
-              <td>${buyAvg.toFixed(2)}</td>
-              <td>${sellAvg.toFixed(2)}</td>
-              <td style="color:${plColor}">${totalPL.toFixed(2)}</td>
-            </tr>
-          `;
-        });
-    
-        tableHTML += "</table>";
-        return tableHTML;
+    // Updated to include "Actions" column for closing position
+    function createPositionsTable(positions, accountNumber) {
+      if (!positions || !Array.isArray(positions) || positions.length === 0) {
+        return "<p>No positions found.</p>";
       }
-    </script>
+
+      let tableHTML = `
+        <table>
+          <tr>
+            <th>Trading Symbol</th>
+            <th>Product Type</th>
+            <th>Net Qty</th>
+            <th>Buy Avg</th>
+            <th>Sell Avg</th>
+            <th>PnL</th>
+            <th>Actions</th>
+          </tr>
+      `;
+
+      positions.forEach((p) => {
+        let symbol = p.tradingSymbol || "";
+        let productType = p.productType || "";
+        let netQty = p.netQty || 0;
+        let buyAvg = p.buyAvg || 0;
+        let sellAvg = p.sellAvg || 0;
+
+        let realized = p.realizedProfit || 0;
+        let unrealized = p.unrealizedProfit || 0;
+        let totalPL = realized + unrealized;
+        let plColor = totalPL >= 0 ? 'green' : 'red';
+
+        let securityId = p.securityId;
+
+        tableHTML += `
+          <tr>
+            <td>${symbol}</td>
+            <td>${productType}</td>
+            <td>${netQty}</td>
+            <td>${buyAvg.toFixed(2)}</td>
+            <td>${sellAvg.toFixed(2)}</td>
+            <td style="color:${plColor}">${totalPL.toFixed(2)}</td>
+            <td>
+              <button onclick="closeMarketPosition(${accountNumber}, '${securityId}', ${netQty})">
+                Close MKT
+              </button>
+              <button onclick="closeLimitPosition(${accountNumber}, '${securityId}', ${netQty})">
+                Close LMT
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      tableHTML += "</table>";
+      return tableHTML;
+    }
+  </script>
 </body>
 </html>
