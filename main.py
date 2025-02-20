@@ -1,7 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from starlette.requests import Request
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
@@ -14,15 +13,12 @@ from contextlib import contextmanager
 import datetime
 import json
 import re
+from typing import Dict, List
 
 # -----------------------------
 # Configuration
 # -----------------------------
 class Settings(BaseSettings):
-    dhan_api_key: str = ""
-    dhan_password: str = ""
-    dhan_api_key2: str = ""
-    dhan_password2: str = ""
     openai_api_key: str = ""
     db_path: str = "options.db"
     default_quantity: int = 75
@@ -34,8 +30,6 @@ class Settings(BaseSettings):
 settings = Settings()
 load_dotenv()
 
-if not all([settings.dhan_api_key, settings.dhan_password, settings.dhan_api_key2, settings.dhan_password2]):
-    raise RuntimeError("Missing required DhanHQ environment variables")
 if not settings.openai_api_key:
     raise RuntimeError("Missing OpenAI API key")
 
@@ -45,13 +39,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-try:
-    dhan = dhanhq(settings.dhan_api_key, settings.dhan_password)
-    dhan2 = dhanhq(settings.dhan_api_key2, settings.dhan_password2)
-    logging.info("Successfully connected to DhanHQ API for both accounts.")
-except Exception as e:
-    logging.error(f"Error initializing DhanHQ API: {str(e)}")
-    dhan = dhan2 = None
+# In-memory storage for accounts (could be replaced with a DB)
+accounts: Dict[str, dhanhq] = {}
 
 class Database:
     def __init__(self, db_path):
@@ -91,11 +80,15 @@ class TradingResponse(BaseModel):
     Target2: int
 
 class ClosePositionRequest(BaseModel):
-    account: int
+    account_id: str
     securityId: str
     netQty: int
     orderType: str
     price: float = 0.0
+
+class AddAccountRequest(BaseModel):
+    api_key: str
+    password: str
 
 # -----------------------------
 # Helper Functions
@@ -163,10 +156,10 @@ def search_options_in_db(symbol: str, expiry: str) -> dict:
 
     return {"data": results} if results else {"message": "No matching symbol+expiry found", "symbol": symbol, "expiry": expiry}
 
-async def place_or_modify_order(dhan_client, security_id: str, account_name: str, buy_price: float) -> dict:
+async def place_or_modify_order(dhan_client, security_id: str, account_id: str, buy_price: float) -> dict:
     try:
         if not security_id:
-            return {account_name: {"error": "Security ID not provided"}}
+            return {account_id: {"error": "Security ID not provided"}}
 
         existing_orders = dhan_client.get_order_list().get("data", [])
         open_orders = [o for o in existing_orders if o.get("securityId") == security_id and o.get("orderStatus") in OPEN_ORDER_STATUSES]
@@ -183,7 +176,7 @@ async def place_or_modify_order(dhan_client, security_id: str, account_name: str
                 disclosed_quantity=0,
                 validity=dhan_client.DAY
             )
-            return {account_name: {"message": "Order modified", "order": modified_order}}
+            return {account_id: {"message": "Order modified", "order": modified_order}}
         else:
             new_order = dhan_client.place_order(
                 security_id=security_id,
@@ -194,24 +187,38 @@ async def place_or_modify_order(dhan_client, security_id: str, account_name: str
                 product_type=dhan_client.MARGIN,
                 price=buy_price
             )
-            return {account_name: {"message": "New order placed", "order": new_order}}
+            return {account_id: {"message": "New order placed", "order": new_order}}
     except Exception as e:
-        return {account_name: {"error": f"Order operation failed: {str(e)}"}}
+        return {account_id: {"error": f"Order operation failed: {str(e)}"}}
 
 # -----------------------------
 # Endpoints
 # -----------------------------
 @app.get("/", response_class=HTMLResponse)
 async def homepage(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request, "accounts": list(accounts.keys())})
+
+@app.post("/add-account", response_model=dict)
+async def add_account(req: AddAccountRequest):
+    account_id = req.api_key  # Using API key as unique identifier
+    if account_id in accounts:
+        return handle_error("Account already exists", 400)
+    
+    try:
+        dhan_client = dhanhq(req.api_key, req.password)
+        accounts[account_id] = dhan_client
+        logging.info(f"Account {account_id} added successfully.")
+        return {"message": f"Account {account_id} added successfully"}
+    except Exception as e:
+        return handle_error(f"Failed to add account: {str(e)}", 500)
 
 last_structured_data = None
 
 @app.post("/submit-text", response_model=dict)
 async def submit_text(input_data: TextInput):
     global last_structured_data
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if not accounts:
+        return handle_error("No accounts added", 400)
 
     today_date = datetime.datetime.today().strftime("%d/%m/%Y")
     expiry_date = determine_expiry(input_data.text)
@@ -232,89 +239,81 @@ async def submit_text(input_data: TextInput):
 
     security_id = matching_options["data"][0][0]
     buy_price = structured_data.Buy1
-    results = {
-        "structured_data": structured_data.dict(),
-        **(await place_or_modify_order(dhan, security_id, "account1", buy_price)),
-        **(await place_or_modify_order(dhan2, security_id, "account2", buy_price))
-    }
+    results = {"structured_data": structured_data.dict()}
+    for account_id, client in accounts.items():
+        results.update(await place_or_modify_order(client, security_id, account_id, buy_price))
     last_structured_data = structured_data
     return results
 
 @app.post("/place-order", response_model=dict)
 async def place_order():
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if not accounts:
+        return handle_error("No accounts added", 400)
 
-    security_id_1 = security_id_2 = None
     buy_price = last_structured_data.Buy1 if last_structured_data else 0.1
-    try:
-        orders_1 = dhan.get_order_list().get("data", [])
-        pending_orders_1 = [o for o in orders_1 if o.get("orderStatus") == "PENDING"]
-        if pending_orders_1:
-            security_id_1 = pending_orders_1[0].get("securityId")
-
-        orders_2 = dhan2.get_order_list().get("data", [])
-        pending_orders_2 = [o for o in orders_2 if o.get("orderStatus") == "PENDING"]
-        if pending_orders_2:
-            security_id_2 = pending_orders_2[0].get("securityId")
-    except Exception as e:
-        return handle_error(f"Failed to fetch pending orders: {str(e)}", 500)
-
-    results = {
-        **(await place_or_modify_order(dhan, security_id_1, "account1", buy_price)),
-        **(await place_or_modify_order(dhan2, security_id_2, "account2", buy_price))
-    }
+    results = {}
+    for account_id, client in accounts.items():
+        security_id = None
+        try:
+            orders = client.get_order_list().get("data", [])
+            pending_orders = [o for o in orders if o.get("orderStatus") == "PENDING"]
+            if pending_orders:
+                security_id = pending_orders[0].get("securityId")
+        except Exception as e:
+            results[account_id] = {"error": f"Failed to fetch pending orders: {str(e)}"}
+            continue
+        results.update(await place_or_modify_order(client, security_id, account_id, buy_price))
     return results
 
 @app.get("/orders", response_model=dict)
 async def get_orders():
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if not accounts:
+        return handle_error("No accounts added", 400)
 
     results = {}
-    for account, client in [("account1", dhan), ("account2", dhan2)]:
+    for account_id, client in accounts.items():
         try:
             orders = client.get_order_list().get("data", [])
-            results[account] = {"orders": orders}
+            results[account_id] = {"orders": orders}
         except Exception as e:
-            results[account] = {"error": f"Fetching orders failed: {str(e)}"}
+            results[account_id] = {"error": f"Fetching orders failed: {str(e)}"}
     return results
 
 @app.get("/holdings", response_model=dict)
 async def get_holdings():
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if not accounts:
+        return handle_error("No accounts added", 400)
 
     results = {}
-    for account, client in [("account1", dhan), ("account2", dhan2)]:
+    for account_id, client in accounts.items():
         try:
             holdings = client.get_holdings().get("data", [])
-            results[account] = {"holdings": holdings}
+            results[account_id] = {"holdings": holdings}
         except Exception as e:
-            results[account] = {"error": f"Fetching holdings failed: {str(e)}"}
+            results[account_id] = {"error": f"Fetching holdings failed: {str(e)}"}
     return results
 
 @app.get("/positions", response_model=dict)
 async def get_positions():
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if not accounts:
+        return handle_error("No accounts added", 400)
 
     results = {}
-    for account, client in [("account1", dhan), ("account2", dhan2)]:
+    for account_id, client in accounts.items():
         try:
             positions = client.get_positions().get("data", [])
-            results[account] = {"positions": positions}
+            results[account_id] = {"positions": positions}
         except Exception as e:
-            results[account] = {"error": f"Fetching positions failed: {str(e)}"}
+            results[account_id] = {"error": f"Fetching positions failed: {str(e)}"}
     return results
 
 @app.post("/cancel-all-orders", response_model=dict)
 async def cancel_all_orders():
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if not accounts:
+        return handle_error("No accounts added", 400)
 
-    results = {"account1": {"canceled": [], "errors": []}, "account2": {"canceled": [], "errors": []}}
-    for account, client in [("account1", dhan), ("account2", dhan2)]:
+    results = {account_id: {"canceled": [], "errors": []} for account_id in accounts}
+    for account_id, client in accounts.items():
         try:
             orders = client.get_order_list().get("data", [])
             open_orders = [o for o in orders if o.get("orderStatus") in OPEN_ORDER_STATUSES]
@@ -322,22 +321,19 @@ async def cancel_all_orders():
                 try:
                     order_id = order.get("orderId")
                     cancel_resp = client.cancel_order(order_id=order_id)
-                    results[account]["canceled"].append({"orderId": order_id, "response": cancel_resp})
+                    results[account_id]["canceled"].append({"orderId": order_id, "response": cancel_resp})
                 except Exception as e:
-                    results[account]["errors"].append(f"Order {order.get('orderId', 'unknown')}: {str(e)}")
+                    results[account_id]["errors"].append(f"Order {order.get('orderId', 'unknown')}: {str(e)}")
         except Exception as e:
-            results[account]["errors"].append(f"Fetching orders failed: {str(e)}")
+            results[account_id]["errors"].append(f"Fetching orders failed: {str(e)}")
     return results
 
 @app.post("/close-position", response_model=dict)
 async def close_position(req: ClosePositionRequest):
-    if not dhan or not dhan2:
-        return handle_error("DhanHQ APIs not initialized", 500)
+    if req.account_id not in accounts:
+        return handle_error(f"Account {req.account_id} not found", 404)
 
-    if req.account not in [1, 2]:
-        return handle_error("Invalid account number (must be 1 or 2)", 400)
-
-    current_dhan = dhan if req.account == 1 else dhan2
+    current_dhan = accounts[req.account_id]
     try:
         if req.netQty == 0:
             return handle_error("netQty=0, nothing to close", 400)

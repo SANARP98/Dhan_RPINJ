@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DhanHQ Trading Dashboard</title>
+  <title>DhanHQ Multi-Account Trading Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
@@ -14,7 +14,7 @@
       padding: 0;
     }
     .container {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -35,7 +35,33 @@
 </head>
 <body>
   <div class="container mx-auto px-4 py-8">
-    <h1 class="text-3xl font-bold text-gray-800 text-center mb-6">DhanHQ Two-Account Trading Dashboard</h1>
+    <h1 class="text-3xl font-bold text-gray-800 text-center mb-6">DhanHQ Multi-Account Trading Dashboard</h1>
+
+    <!-- Add Account Section -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-gray-700 mb-4">Add New Account</h2>
+      <div class="flex flex-col sm:flex-row gap-4">
+        <input
+          id="apiKeyInput"
+          type="text"
+          class="w-full sm:w-1/2 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter Dhan API Key"
+        />
+        <input
+          id="passwordInput"
+          type="password"
+          class="w-full sm:w-1/2 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter Dhan Password"
+        />
+        <button
+          onclick="addAccount()"
+          class="bg-blue-600 text-white px-6 py-2 rounded-lg btn hover:bg-blue-700"
+        >
+          Add Account
+        </button>
+      </div>
+      <p id="accountMessage" class="mt-2 text-sm font-medium"></p>
+    </div>
 
     <!-- Input Section -->
     <div class="card">
@@ -50,7 +76,7 @@
       >
         Submit Text
       </button>
-      <p id="message" class="mt-2 text-sm font-medium text-blue-600"></p>
+      <p id="message" class="mt-2 text-sm font-medium"></p>
     </div>
 
     <!-- Structured Data Display -->
@@ -101,37 +127,52 @@
       </button>
     </div>
 
-    <!-- Account Sections -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <!-- Account 1 -->
-      <div class="card">
-        <h2 class="text-xl font-semibold text-gray-700 bg-blue-100 p-3 rounded-t-lg">Account 1</h2>
-        <div class="mt-4">
-          <h3 class="text-lg font-medium text-gray-600">Orders</h3>
-          <div id="orders1" class="overflow-x-auto"></div>
-          <h3 class="text-lg font-medium text-gray-600 mt-4">Holdings</h3>
-          <div id="holdings1" class="overflow-x-auto"></div>
-          <h3 class="text-lg font-medium text-gray-600 mt-4">Positions</h3>
-          <div id="positions1" class="overflow-x-auto"></div>
-        </div>
-      </div>
-
-      <!-- Account 2 -->
-      <div class="card">
-        <h2 class="text-xl font-semibold text-gray-700 bg-blue-100 p-3 rounded-t-lg">Account 2</h2>
-        <div class="mt-4">
-          <h3 class="text-lg font-medium text-gray-600">Orders</h3>
-          <div id="orders2" class="overflow-x-auto"></div>
-          <h3 class="text-lg font-medium text-gray-600 mt-4">Holdings</h3>
-          <div id="holdings2" class="overflow-x-auto"></div>
-          <h3 class="text-lg font-medium text-gray-600 mt-4">Positions</h3>
-          <div id="positions2" class="overflow-x-auto"></div>
-        </div>
-      </div>
-    </div>
+    <!-- Accounts Display -->
+    <div id="accountsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
   </div>
 
   <script>
+    async function addAccount() {
+      const apiKey = document.getElementById("apiKeyInput").value.trim();
+      const password = document.getElementById("passwordInput").value.trim();
+      if (!apiKey || !password) {
+        alert("Please enter both API Key and Password.");
+        return;
+      }
+
+      try {
+        const response = await fetch('/add-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: apiKey, password })
+        });
+        const data = await response.json();
+        const messageEl = document.getElementById("accountMessage");
+
+        if (response.ok) {
+          messageEl.textContent = data.message;
+          messageEl.classList.remove("text-red-600");
+          messageEl.classList.add("text-green-600");
+          document.getElementById("apiKeyInput").value = "";
+          document.getElementById("passwordInput").value = "";
+          fetchAccounts(); // Refresh UI
+        } else {
+          messageEl.textContent = "Error: " + (data.error || "Unknown error");
+          messageEl.classList.remove("text-green-600");
+          messageEl.classList.add("text-red-600");
+        }
+      } catch (error) {
+        alert("Network error: " + error);
+      }
+    }
+
+    async function fetchAccounts() {
+      // Since accounts are managed server-side, we'll rely on API calls to reflect changes
+      fetchOrders(); // Refresh orders to reflect new accounts
+      fetchHoldings();
+      fetchPositions();
+    }
+
     async function submitText() {
       const text = document.getElementById("textInput").value.trim();
       if (!text) {
@@ -192,8 +233,7 @@
       try {
         const response = await fetch('/orders');
         const data = await response.json();
-        document.getElementById("orders1").innerHTML = createOrdersTable(data.account1?.orders);
-        document.getElementById("orders2").innerHTML = createOrdersTable(data.account2?.orders);
+        updateAccountsContainer(data, "orders", createOrdersTable);
       } catch (error) {
         alert("Error fetching orders: " + error);
       }
@@ -203,8 +243,7 @@
       try {
         const response = await fetch('/holdings');
         const data = await response.json();
-        document.getElementById("holdings1").innerHTML = createHoldingsTable(data.account1?.holdings);
-        document.getElementById("holdings2").innerHTML = createHoldingsTable(data.account2?.holdings);
+        updateAccountsContainer(data, "holdings", createHoldingsTable);
       } catch (error) {
         alert("Error fetching holdings: " + error);
       }
@@ -214,8 +253,7 @@
       try {
         const response = await fetch('/positions');
         const data = await response.json();
-        document.getElementById("positions1").innerHTML = createPositionsTable(data.account1?.positions, 1);
-        document.getElementById("positions2").innerHTML = createPositionsTable(data.account2?.positions, 2);
+        updateAccountsContainer(data, "positions", createPositionsTable);
       } catch (error) {
         alert("Error fetching positions: " + error);
       }
@@ -226,18 +264,19 @@
         const response = await fetch('/cancel-all-orders', { method: 'POST' });
         const data = await response.json();
         alert("Cancel All Response: " + JSON.stringify(data));
+        fetchOrders(); // Refresh orders
       } catch (error) {
         alert("Error canceling orders: " + error);
       }
     }
 
-    async function closeMarketPosition(account, securityId, netQty) {
+    async function closeMarketPosition(accountId, securityId, netQty) {
       if (!confirm("Close this position at MARKET?")) return;
-      const payload = { account, securityId, netQty, orderType: "MARKET", price: 0 };
+      const payload = { account_id: accountId, securityId, netQty, orderType: "MARKET", price: 0 };
       await closePosition(payload, "Market");
     }
 
-    async function closeLimitPosition(account, securityId, netQty) {
+    async function closeLimitPosition(accountId, securityId, netQty) {
       const limitPrice = prompt("Enter Limit Price:");
       if (!limitPrice) return;
       const priceNum = parseFloat(limitPrice);
@@ -245,7 +284,7 @@
         alert("Invalid price.");
         return;
       }
-      const payload = { account, securityId, netQty, orderType: "LIMIT", price: priceNum };
+      const payload = { account_id: accountId, securityId, netQty, orderType: "LIMIT", price: priceNum };
       await closePosition(payload, "Limit");
     }
 
@@ -258,9 +297,26 @@
         });
         const data = await resp.json();
         alert(resp.ok ? `Close ${type} success: ` + JSON.stringify(data) : "Error: " + JSON.stringify(data));
-        if (resp.ok) fetchPositions(); // Refresh positions
+        if (resp.ok) fetchPositions();
       } catch (err) {
         alert("Network error: " + err);
+      }
+    }
+
+    function updateAccountsContainer(data, key, tableFunc) {
+      const container = document.getElementById("accountsContainer");
+      container.innerHTML = "";
+      for (const [accountId, info] of Object.entries(data)) {
+        const html = `
+          <div class="card">
+            <h2 class="text-xl font-semibold text-gray-700 bg-blue-100 p-3 rounded-t-lg">Account ${accountId}</h2>
+            <div class="mt-4">
+              <h3 class="text-lg font-medium text-gray-600">${key.charAt(0).toUpperCase() + key.slice(1)}</h3>
+              <div class="overflow-x-auto">${tableFunc(info[key], accountId)}</div>
+            </div>
+          </div>
+        `;
+        container.innerHTML += html;
       }
     }
 
@@ -292,7 +348,7 @@
       return html + "</tbody></table>";
     }
 
-    function createPositionsTable(positions, account) {
+    function createPositionsTable(positions, accountId) {
       if (!positions?.length) return "<p class='text-gray-500'>No positions found.</p>";
       let html = `<table class="w-full border-collapse">
         <thead class="bg-blue-600 text-white">
@@ -302,11 +358,16 @@
         const totalPL = ((p.realizedProfit || 0) + (p.unrealizedProfit || 0)).toFixed(2);
         html += `<tr class="border-b">
           <td class="p-2">${p.tradingSymbol || ""}</td><td>${p.productType || ""}</td><td>${p.netQty || 0}</td><td>${(p.buyAvg || 0).toFixed(2)}</td><td>${(p.sellAvg || 0).toFixed(2)}</td><td class="${totalPL >= 0 ? 'text-green-600' : 'text-red-600'}">${totalPL}</td>
-          <td><button class="bg-blue-500 text-white px-2 py-1 rounded mr-1 hover:bg-blue-600" onclick="closeMarketPosition(${account}, '${p.securityId}', ${p.netQty})">MKT</button><button class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600" onclick="closeLimitPosition(${account}, '${p.securityId}', ${p.netQty})">LMT</button></td>
+          <td><button class="bg-blue-500 text-white px-2 py-1 rounded mr-1 hover:bg-blue-600" onclick="closeMarketPosition('${accountId}', '${p.securityId}', ${p.netQty})">MKT</button><button class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600" onclick="closeLimitPosition('${accountId}', '${p.securityId}', ${p.netQty})">LMT</button></td>
         </tr>`;
       });
       return html + "</tbody></table>";
     }
+
+    // Initial fetch to load existing accounts from .env (if needed)
+    window.onload = () => {
+      fetchAccounts(); // Load initial state
+    };
   </script>
 </body>
 </html>
