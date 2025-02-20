@@ -1,143 +1,324 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DhanHQ Trading Dashboard</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
-        h1 { color: #333; }
-        button { padding: 10px 15px; font-size: 16px; margin: 10px; cursor: pointer; }
-        table { width: 90%; margin: 20px auto; border-collapse: collapse; background: white; }
-        th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
-        th { background: #007bff; color: white; }
-        tr:nth-child(even) { background: #f9f9f9; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DhanHQ Two-Account Trading Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+    h1 {
+      color: #333;
+      margin: 20px 0 10px;
+    }
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      margin: 10px;
+      cursor: pointer;
+    }
+    textarea {
+      display: block;
+      width: 300px;
+      height: 80px;
+      margin: 0 auto;
+      margin-top: 15px;
+      font-size: 14px;
+      padding: 8px;
+    }
+    #message {
+      margin-top: 10px;
+      color: #007bff;
+      font-weight: bold;
+    }
+    .account-section {
+      margin: 20px auto;
+      width: 90%;
+    }
+    .account-section h2 {
+      background: #007bff;
+      color: #fff;
+      padding: 10px;
+      text-align: left;
+      margin: 0;
+    }
+    table {
+      width: 100%;
+      margin: 0;
+      border-collapse: collapse;
+      background: white;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid #ddd;
+      text-align: center;
+    }
+    th {
+      background: #007bff;
+      color: white;
+    }
+    tr:nth-child(even) {
+      background: #f9f9f9;
+    }
+    #orders1, #orders2, #holdings1, #holdings2 {
+      margin-bottom: 40px;
+    }
+  </style>
 </head>
 <body>
-    <h1>DhanHQ Trading Dashboard</h1>
-    <textarea id="textInput" placeholder="Enter your text here..."></textarea>
-    <button onclick="submitText()">Submit Text</button>
-    <p id="message"></p>
-    <!-- Renamed button from "Place Order" to "Place/Modify Order" -->
-    <button onclick="placeOrder()">Place/Modify Order</button>
-    <button onclick="fetchOrders()">Fetch Orders</button>
-    <button onclick="fetchHoldings()">Fetch Holdings</button>
+  <h1>DhanHQ Two-Account Trading Dashboard</h1>
 
-    <!-- Optionally add more buttons if you want to manually cancel or modify an order by ID
-         (requires creating endpoints for those in main.py). Example:
-         <button onclick="cancelOrder()">Cancel Order by ID</button>
-         <button onclick="modifyOrder()">Modify Order by ID</button>
-    -->
+  <textarea id="textInput" placeholder="Enter your text here..."></textarea>
+  <button onclick="submitText()">Submit Text</button>
+  <p id="message"></p>
 
-    <div id="orders"></div>
-    <div id="holdings"></div>
+  <button onclick="placeOrder()">Place/Modify Order</button>
+  <button onclick="fetchOrders()">Fetch Orders</button>
+  <button onclick="fetchHoldings()">Fetch Holdings</button>
 
-    <script>
-        async function submitText() {
-            let text = document.getElementById("textInput").value;
-            if (!text.trim()) {
-                alert("Please enter some text.");
-                return;
-            }
+  <!-- Container for Orders (Account 1 and Account 2) -->
+  <div class="account-section">
+    <h2>Account 1 Orders</h2>
+    <div id="orders1"></div>
+  </div>
+  <div class="account-section">
+    <h2>Account 2 Orders</h2>
+    <div id="orders2"></div>
+  </div>
 
-            try {
-                let response = await fetch('/submit-text', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: text })
-                });
+  <!-- Container for Holdings (Account 1 and Account 2) -->
+  <div class="account-section">
+    <h2>Account 1 Holdings</h2>
+    <div id="holdings1"></div>
+  </div>
+  <div class="account-section">
+    <h2>Account 2 Holdings</h2>
+    <div id="holdings2"></div>
+  </div>
 
-                let data = await response.json();
-                if (response.ok) {
-                    document.getElementById("message").textContent = "Text submitted successfully!";
-                } else {
-                    alert("Error: " + data.detail);
-                }
-            } catch (error) {
-                alert("Network error while submitting text.");
-            }
+  <script>
+    // 1) SUBMIT TEXT
+    async function submitText() {
+      let text = document.getElementById("textInput").value;
+      if (!text.trim()) {
+        alert("Please enter some text.");
+        return;
+      }
+
+      try {
+        let response = await fetch('/submit-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text })
+        });
+        let data = await response.json();
+
+        if (response.ok) {
+          // data structure might look like: 
+          // {
+          //   "account1": {...}, 
+          //   "account2": {...}, 
+          //   "structured_data": {...}
+          // }
+          document.getElementById("message").textContent = "Text submitted successfully!";
+          console.log("submit-text result:", data);
+          alert("Submit-Text Response: " + JSON.stringify(data, null, 2));
+        } else {
+          // If there's an error, data.detail might exist
+          alert("Error: " + data.detail);
+        }
+      } catch (error) {
+        alert("Network error while submitting text: " + error);
+      }
+    }
+
+    // 2) PLACE/MODIFY ORDER
+    async function placeOrder() {
+      try {
+        let response = await fetch('/place-order', { method: 'POST' });
+        let data = await response.json();
+
+        if (response.ok) {
+          // data structure might be:
+          // {
+          //   "account1": {...},
+          //   "account2": {...}
+          // }
+          alert("Response: " + JSON.stringify(data, null, 2));
+          console.log("place-order result:", data);
+        } else {
+          alert("Error: " + data.detail);
+        }
+      } catch (error) {
+        alert("Network error while placing/modifying order: " + error);
+      }
+    }
+
+    // 3) FETCH ORDERS FOR BOTH ACCOUNTS
+    async function fetchOrders() {
+      try {
+        let response = await fetch('/orders');
+        let data = await response.json();
+        console.log("fetchOrders data:", data);
+
+        // data structure might look like:
+        // {
+        //   "account1": { "orders": [...] },
+        //   "account2": { "orders": [...] }
+        // }
+
+        // Handle Account1 orders
+        let orders1Div = document.getElementById("orders1");
+        if (data.account1 && data.account1.orders) {
+          let orders1 = data.account1.orders;
+          let tableHTML = createOrdersTable(orders1);
+          orders1Div.innerHTML = tableHTML;
+        } else if (data.account1 && data.account1.error) {
+          orders1Div.innerHTML = "<p style='color:red'>" + data.account1.error + "</p>";
+        } else {
+          orders1Div.innerHTML = "<p>No data received for Account 1.</p>";
         }
 
-        async function placeOrder() {
-            try {
-                let response = await fetch('/place-order', { method: 'POST' });
-                let data = await response.json();
-                if (response.ok) {
-                    alert("Response: " + JSON.stringify(data, null, 2));
-                } else {
-                    alert("Error: " + data.detail);
-                }
-            } catch (error) {
-                alert("Network error while placing/modifying order.");
-            }
+        // Handle Account2 orders
+        let orders2Div = document.getElementById("orders2");
+        if (data.account2 && data.account2.orders) {
+          let orders2 = data.account2.orders;
+          let tableHTML = createOrdersTable(orders2);
+          orders2Div.innerHTML = tableHTML;
+        } else if (data.account2 && data.account2.error) {
+          orders2Div.innerHTML = "<p style='color:red'>" + data.account2.error + "</p>";
+        } else {
+          orders2Div.innerHTML = "<p>No data received for Account 2.</p>";
         }
 
-        async function fetchOrders() {
-            try {
-                let response = await fetch('/orders');
-                let data = await response.json();
-                let orders = data.orders;
+      } catch (error) {
+        alert("Error fetching orders: " + error);
+        console.error(error);
+      }
+    }
 
-                let tableHTML = `<table>
-                    <tr>
-                        <th>Order ID</th>
-                        <th>Status</th>
-                        <th>Symbol</th>
-                        <th>Security ID</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Time</th>
-                    </tr>`;
+    // 4) FETCH HOLDINGS FOR BOTH ACCOUNTS
+    async function fetchHoldings() {
+      try {
+        let response = await fetch('/holdings');
+        let data = await response.json();
+        console.log("fetchHoldings data:", data);
 
-                orders.forEach(order => {
-                    tableHTML += `<tr>
-                        <td>${order.orderId}</td>
-                        <td>${order.orderStatus}</td>
-                        <td>${order.tradingSymbol}</td>
-                        <td>${order.securityId}</td>
-                        <td>${order.quantity}</td>
-                        <td>${order.price}</td>
-                        <td>${order.createTime}</td>
-                    </tr>`;
-                });
+        // data structure might look like:
+        // {
+        //   "account1": { "holdings": [...] },
+        //   "account2": { "holdings": [...] }
+        // }
 
-                tableHTML += "</table>";
-                document.getElementById("orders").innerHTML = tableHTML;
-            } catch (error) {
-                alert("Error fetching orders.");
-                console.error(error);
-            }
+        // Account1 holdings
+        let holdings1Div = document.getElementById("holdings1");
+        if (data.account1 && data.account1.holdings) {
+          let holdings1 = data.account1.holdings;
+          let tableHTML = createHoldingsTable(holdings1);
+          holdings1Div.innerHTML = tableHTML;
+        } else if (data.account1 && data.account1.error) {
+          holdings1Div.innerHTML = "<p style='color:red'>" + data.account1.error + "</p>";
+        } else {
+          holdings1Div.innerHTML = "<p>No data received for Account 1.</p>";
         }
 
-        async function fetchHoldings() {
-            try {
-                let response = await fetch('/holdings');
-                let data = await response.json();
-                let holdings = data.holdings;
-
-                let tableHTML = "<table><tr><th>Security ID</th><th>Symbol</th><th>Quantity</th><th>Avg Price</th><th>Current Price</th><th>Profit/Loss</th></tr>";
-
-                holdings.forEach(holding => {
-                    let profitLoss = ((holding.lastTradedPrice - holding.avgCostPrice) * holding.totalQty).toFixed(2);
-                    let profitLossColor = profitLoss >= 0 ? 'green' : 'red';
-
-                    tableHTML += `<tr>
-                        <td>${holding.securityId}</td>
-                        <td>${holding.tradingSymbol}</td>
-                        <td>${holding.totalQty}</td>
-                        <td>${holding.avgCostPrice.toFixed(2)}</td>
-                        <td>${holding.lastTradedPrice.toFixed(2)}</td>
-                        <td style="color: ${profitLossColor};">${profitLoss}</td>
-                    </tr>`;
-                });
-
-                tableHTML += "</table>";
-                document.getElementById("holdings").innerHTML = tableHTML;
-            } catch (error) {
-                alert("Error fetching holdings.");
-            }
+        // Account2 holdings
+        let holdings2Div = document.getElementById("holdings2");
+        if (data.account2 && data.account2.holdings) {
+          let holdings2 = data.account2.holdings;
+          let tableHTML = createHoldingsTable(holdings2);
+          holdings2Div.innerHTML = tableHTML;
+        } else if (data.account2 && data.account2.error) {
+          holdings2Div.innerHTML = "<p style='color:red'>" + data.account2.error + "</p>";
+        } else {
+          holdings2Div.innerHTML = "<p>No data received for Account 2.</p>";
         }
-    </script>
+
+      } catch (error) {
+        alert("Error fetching holdings: " + error);
+      }
+    }
+
+    // ------------------ HELPERS ------------------
+    function createOrdersTable(orders) {
+      if (!orders || !Array.isArray(orders) || orders.length === 0) {
+        return "<p>No orders found.</p>";
+      }
+
+      let tableHTML = `
+        <table>
+          <tr>
+            <th>Order ID</th>
+            <th>Status</th>
+            <th>Symbol</th>
+            <th>Security ID</th>
+            <th>Quantity</th>
+            <th>Price</th>
+            <th>Create Time</th>
+          </tr>
+      `;
+
+      orders.forEach(order => {
+        tableHTML += `
+          <tr>
+            <td>${order.orderId || ""}</td>
+            <td>${order.orderStatus || ""}</td>
+            <td>${order.tradingSymbol || ""}</td>
+            <td>${order.securityId || ""}</td>
+            <td>${order.quantity || ""}</td>
+            <td>${order.price || ""}</td>
+            <td>${order.createTime || ""}</td>
+          </tr>
+        `;
+      });
+      tableHTML += "</table>";
+      return tableHTML;
+    }
+
+    function createHoldingsTable(holdings) {
+      if (!holdings || !Array.isArray(holdings) || holdings.length === 0) {
+        return "<p>No holdings found.</p>";
+      }
+
+      let tableHTML = `
+        <table>
+          <tr>
+            <th>Security ID</th>
+            <th>Symbol</th>
+            <th>Quantity</th>
+            <th>Avg Price</th>
+            <th>Current Price</th>
+            <th>Profit/Loss</th>
+          </tr>
+      `;
+
+      holdings.forEach(holding => {
+        let avg = holding.avgCostPrice || 0;
+        let last = holding.lastTradedPrice || 0;
+        let qty = holding.totalQty || 0;
+
+        let profitLoss = ((last - avg) * qty).toFixed(2);
+        let profitLossColor = profitLoss >= 0 ? 'green' : 'red';
+
+        tableHTML += `
+          <tr>
+            <td>${holding.securityId || ""}</td>
+            <td>${holding.tradingSymbol || ""}</td>
+            <td>${qty}</td>
+            <td>${avg.toFixed(2)}</td>
+            <td>${last.toFixed(2)}</td>
+            <td style="color:${profitLossColor}">${profitLoss}</td>
+          </tr>
+        `;
+      });
+      tableHTML += "</table>";
+      return tableHTML;
+    }
+  </script>
 </body>
 </html>

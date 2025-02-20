@@ -16,15 +16,21 @@ import sqlite3
 import json
 import re
 
-
 # Load environment variables
 load_dotenv()
 api_key = os.getenv("DHAN_API_KEY")
 password = os.getenv("DHAN_PASSWORD")
 
-DB_PATH = "options.db"
-SECURITY_ID = None  # or a default value, e.g. "44903"
+api_key2 = os.getenv("DHAN_API_KEY2")
+password2 = os.getenv("DHAN_PASSWORD2")
 
+DB_PATH = "options.db"
+
+# --------------------------------------------------------------------------------
+# Instead of a single SECURITY_ID, have two for each account
+# --------------------------------------------------------------------------------
+SECURITY_ID_1 = None
+SECURITY_ID_2 = None
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -38,13 +44,15 @@ submitted_text = ""
 # Templates
 templates = Jinja2Templates(directory="templates")
 
-# Initialize Dhan API connection
+# Initialize Dhan API connection for both accounts
 try:
     dhan = dhanhq(api_key, password)
-    logging.info("Successfully connected to DhanHQ API")
+    dhan2 = dhanhq(api_key2, password2)
+    logging.info("Successfully connected to DhanHQ API for both accounts.")
 except Exception as e:
     logging.error(f"Error initializing DhanHQ API: {str(e)}")
-    dhan = None  # Prevents app crash if API initialization fails
+    dhan = None
+    dhan2 = None
 
 # -------------------------------------------------------------------
 # 1) Simple Homepage route
@@ -54,32 +62,43 @@ async def homepage(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 # -------------------------------------------------------------------
-# 2) Place Order (modified logic)
+# 2) Place Order - for both accounts
 # -------------------------------------------------------------------
 @app.post("/place-order")
 async def place_order():
-    global SECURITY_ID  # So we can reassign it
+    """
+    This endpoint now places/modifies orders for both accounts in parallel.
+    """
+    global SECURITY_ID_1, SECURITY_ID_2
 
-    if not dhan:
-        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+    # If either is not initialized, raise error
+    if not dhan or not dhan2:
+        raise HTTPException(status_code=500, detail="One or both DhanHQ APIs not initialized.")
 
+    results = {
+        "account1": None,
+        "account2": None
+    }
+
+    # ----------------------------
+    # Account 1 logic (unchanged)
+    # ----------------------------
     try:
-        # 1) Fetch current orders
         existing_orders_response = dhan.get_order_list()
         all_orders = existing_orders_response.get("data", [])
 
-        # --- A) Get the securityId from the FIRST pending order and store it in SECURITY_ID ---
+        # Find first pending order to set SECURITY_ID_1 (if any)
         pending_orders = [o for o in all_orders if o.get("orderStatus") == "PENDING"]
         if pending_orders:
-            SECURITY_ID = pending_orders[0].get("securityId")  # First PENDING order's security ID
-            logging.info(f"Setting SECURITY_ID to the first pending order: {SECURITY_ID}")
+            SECURITY_ID_1 = pending_orders[0].get("securityId")
+            logging.info(f"[Account1] Setting SECURITY_ID_1 from first pending order: {SECURITY_ID_1}")
         else:
-            logging.info("No pending orders found to extract a securityId from.")
+            logging.info("[Account1] No pending orders found to extract a securityId.")
 
-        # --- B) Now do your existing logic that checks if there's an open/active order for SECURITY_ID ---
+        # Now check for open/active order with that SECURITY_ID_1
         open_orders_for_security = [
             o for o in all_orders
-            if o.get("securityId") == SECURITY_ID
+            if o.get("securityId") == SECURITY_ID_1
             and o.get("orderStatus") in ["OPEN", "TRANSIT", "PARTIALLY_FILLED", "PENDING"]
         ]
 
@@ -90,21 +109,21 @@ async def place_order():
             modified_order = dhan.modify_order(
                 order_id=order_id,
                 order_type=dhan.LIMIT,
-                leg_name="ENTRY_LEG", 
+                leg_name="ENTRY_LEG",
                 quantity=75,
                 price=0.2,
                 trigger_price=0,
                 disclosed_quantity=0,
                 validity=dhan.DAY
             )
-            logging.info(f"Order modified: {modified_order}")
-            return {
+            logging.info(f"[Account1] Order modified: {modified_order}")
+            results["account1"] = {
                 "message": "Order modified instead of placing a new one.",
                 "modified_order": modified_order
             }
         else:
             order = dhan.place_order(
-                security_id=SECURITY_ID,
+                security_id=SECURITY_ID_1,
                 exchange_segment=dhan.NSE_FNO,
                 transaction_type=dhan.BUY,
                 quantity=75,
@@ -112,49 +131,175 @@ async def place_order():
                 product_type=dhan.MARGIN,
                 price=0.1
             )
-            logging.info(f"Order placed: {order}")
-            return {
+            logging.info(f"[Account1] Order placed: {order}")
+            results["account1"] = {
                 "message": "No open order found; new order placed successfully.",
                 "order": order
             }
 
     except Exception as e:
-        logging.error(f"Order placement/modification failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Order placement/modification failed: {str(e)}")
+        logging.error(f"[Account1] Order placement/modification failed: {str(e)}")
+        results["account1"] = {
+            "error": f"Order placement/modification failed: {str(e)}"
+        }
+
+    # ----------------------------
+    # Account 2 logic (mirror)
+    # ----------------------------
+    try:
+        existing_orders_response_2 = dhan2.get_order_list()
+        all_orders_2 = existing_orders_response_2.get("data", [])
+
+        # Find first pending order to set SECURITY_ID_2 (if any)
+        pending_orders_2 = [o for o in all_orders_2 if o.get("orderStatus") == "PENDING"]
+        if pending_orders_2:
+            SECURITY_ID_2 = pending_orders_2[0].get("securityId")
+            logging.info(f"[Account2] Setting SECURITY_ID_2 from first pending order: {SECURITY_ID_2}")
+        else:
+            logging.info("[Account2] No pending orders found to extract a securityId.")
+
+        # Now check for open/active order with that SECURITY_ID_2
+        open_orders_for_security_2 = [
+            o for o in all_orders_2
+            if o.get("securityId") == SECURITY_ID_2
+            and o.get("orderStatus") in ["OPEN", "TRANSIT", "PARTIALLY_FILLED", "PENDING"]
+        ]
+
+        if open_orders_for_security_2:
+            order_to_modify_2 = open_orders_for_security_2[0]
+            order_id_2 = order_to_modify_2.get("orderId")
+
+            modified_order_2 = dhan2.modify_order(
+                order_id=order_id_2,
+                order_type=dhan2.LIMIT,
+                leg_name="ENTRY_LEG",
+                quantity=75,
+                price=0.2,
+                trigger_price=0,
+                disclosed_quantity=0,
+                validity=dhan2.DAY
+            )
+            logging.info(f"[Account2] Order modified: {modified_order_2}")
+            results["account2"] = {
+                "message": "Order modified instead of placing a new one.",
+                "modified_order": modified_order_2
+            }
+        else:
+            order_2 = dhan2.place_order(
+                security_id=SECURITY_ID_2,
+                exchange_segment=dhan2.NSE_FNO,
+                transaction_type=dhan2.BUY,
+                quantity=75,
+                order_type=dhan2.LIMIT,
+                product_type=dhan2.MARGIN,
+                price=0.1
+            )
+            logging.info(f"[Account2] Order placed: {order_2}")
+            results["account2"] = {
+                "message": "No open order found; new order placed successfully.",
+                "order": order_2
+            }
+
+    except Exception as e:
+        logging.error(f"[Account2] Order placement/modification failed: {str(e)}")
+        results["account2"] = {
+            "error": f"Order placement/modification failed: {str(e)}"
+        }
+
+    return results
 
 # -------------------------------------------------------------------
-# 3) Get Orders
+# 3) Get Orders - for both accounts
 # -------------------------------------------------------------------
 @app.get("/orders")
 async def get_orders():
-    if not dhan:
-        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+    """
+    Fetch orders for both accounts simultaneously.
+    """
+    if not dhan or not dhan2:
+        raise HTTPException(status_code=500, detail="One or both DhanHQ APIs not initialized.")
 
+    results = {
+        "account1": None,
+        "account2": None
+    }
+
+    # Account 1
     try:
-        response = dhan.get_order_list()
-        orders = response.get("data", [])
-        logging.info(f"Fetched {len(orders)} orders")
-        return {"orders": orders}
+        response_1 = dhan.get_order_list()
+        orders_1 = response_1.get("data", [])
+        logging.info(f"[Account1] Fetched {len(orders_1)} orders")
+        results["account1"] = {
+            "orders": orders_1
+        }
     except Exception as e:
-        logging.error(f"Fetching orders failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Fetching orders failed: {str(e)}")
+        logging.error(f"[Account1] Fetching orders failed: {str(e)}")
+        results["account1"] = {
+            "error": f"Fetching orders failed: {str(e)}"
+        }
+
+    # Account 2
+    try:
+        response_2 = dhan2.get_order_list()
+        orders_2 = response_2.get("data", [])
+        logging.info(f"[Account2] Fetched {len(orders_2)} orders")
+        results["account2"] = {
+            "orders": orders_2
+        }
+    except Exception as e:
+        logging.error(f"[Account2] Fetching orders failed: {str(e)}")
+        results["account2"] = {
+            "error": f"Fetching orders failed: {str(e)}"
+        }
+
+    return results
 
 # -------------------------------------------------------------------
-# 4) Get Holdings
+# 4) Get Holdings - for both accounts
 # -------------------------------------------------------------------
 @app.get("/holdings")
 async def get_holdings():
-    if not dhan:
-        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+    """
+    Fetch holdings for both accounts simultaneously.
+    """
+    if not dhan or not dhan2:
+        raise HTTPException(status_code=500, detail="One or both DhanHQ APIs not initialized.")
 
+    results = {
+        "account1": None,
+        "account2": None
+    }
+
+    # Account 1
     try:
-        response = dhan.get_holdings()
-        holdings = response.get("data", [])
-        logging.info(f"Fetched {len(holdings)} holdings")
-        return {"holdings": holdings}
+        response_1 = dhan.get_holdings()
+        holdings_1 = response_1.get("data", [])
+        logging.info(f"[Account1] Fetched {len(holdings_1)} holdings")
+        results["account1"] = {
+            "holdings": holdings_1
+        }
     except Exception as e:
-        logging.error(f"Fetching holdings failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Fetching holdings failed: {str(e)}")
+        logging.error(f"[Account1] Fetching holdings failed: {str(e)}")
+        results["account1"] = {
+            "error": f"Fetching holdings failed: {str(e)}"
+        }
+
+    # Account 2
+    try:
+        response_2 = dhan2.get_holdings()
+        holdings_2 = response_2.get("data", [])
+        logging.info(f"[Account2] Fetched {len(holdings_2)} holdings")
+        results["account2"] = {
+            "holdings": holdings_2
+        }
+    except Exception as e:
+        logging.error(f"[Account2] Fetching holdings failed: {str(e)}")
+        results["account2"] = {
+            "error": f"Fetching holdings failed: {str(e)}"
+        }
+
+    return results
+
 
 # -------------------------------------------------------------------
 # 5) Models
@@ -224,7 +369,7 @@ def generate_prompt(text: str) -> str:
         "Target1": <First Closest Target>,
         "Target2": <Second Closest Target>
     }}
-    Ensure the values are correctly extracted and formatted from the input text. Dont give any pre and post explanation. Just the output. 
+    Ensure the values are correctly extracted and formatted from the input text. Dont give any pre and post explanation. Just the output.
     """
 
 async def call_chatgpt(prompt: str) -> str:
@@ -313,7 +458,7 @@ def search_options_in_db(symbol: str, expiry: str) -> dict:
         }
 
 # -------------------------------------------------------------------
-# 7) Main Endpoint to submit text and place an order (modified logic)
+# 7) Main Endpoint to submit text and place an order (for both accounts)
 # -------------------------------------------------------------------
 @app.post("/submit-text")
 async def submit_text(input_data: TextInput):
@@ -321,14 +466,17 @@ async def submit_text(input_data: TextInput):
     Updated logic:
     1) Generate GPT prompt and parse GPT response.
     2) Search DB for symbol/expiry.
-    3) If found, BEFORE placing a new order, check if an open order for same securityId exists.
-       - If open, modify that order instead of placing a new one.
-       - Else, place a new order.
+    3) If found, for each account:
+       - Check if an open order for same securityId exists.
+         * If open, modify that order instead of placing a new one.
+         * Else, place a new order.
     """
-    if not dhan:
-        raise HTTPException(status_code=500, detail="DhanHQ API not initialized")
+    global SECURITY_ID_1, SECURITY_ID_2
 
-    # --- Step 1: Prompt GPT ---
+    if not dhan or not dhan2:
+        raise HTTPException(status_code=500, detail="One or both DhanHQ APIs not initialized.")
+
+    # Step 1: Prompt GPT once
     prompt = generate_prompt(input_data.text)
     gpt_raw_response = await call_chatgpt(prompt)
     logging.info(f"GPT Raw Response:\n{gpt_raw_response}")
@@ -336,7 +484,7 @@ async def submit_text(input_data: TextInput):
     # Clean the GPT response
     cleaned_response = clean_gpt_response(gpt_raw_response)
 
-    # --- Step 2: Parse the JSON from GPT ---
+    # Step 2: Parse the JSON from GPT
     try:
         structured_data = json.loads(cleaned_response)
     except json.JSONDecodeError as e:
@@ -348,11 +496,11 @@ async def submit_text(input_data: TextInput):
     expiry = structured_data.get("expiry", "").strip()
     logging.info(f"Parsed Symbol: {symbol}, Expiry: {expiry}")
 
-    # --- Step 3: DB Search for the extracted symbol/expiry ---
+    # Step 3: DB Search for the extracted symbol/expiry
     matching_options = search_options_in_db(symbol, expiry)
     logging.info(f"Matching Options: {matching_options}")
 
-    # If there's an error or no data returned, do NOT place an order.
+    # If there's an error or no data returned, do NOT place an order
     if "error" in matching_options:
         raise HTTPException(
             status_code=404,
@@ -368,66 +516,132 @@ async def submit_text(input_data: TextInput):
 
     # We have valid data, so let's attempt to place/modify the order
     first_match = matching_options["data"][0]
-    global SECURITY_ID
-    SECURITY_ID = first_match[0]
+    # NOTE: Here, first_match[0] is assumed to be the security_id from your DB row
+    # We'll store it into both SECURITY_ID_1 and SECURITY_ID_2
+    SECURITY_ID_1 = first_match[0]
+    SECURITY_ID_2 = first_match[0]
 
+    # We'll do the same place/modify logic for both accounts
+    results = {
+        "account1": None,
+        "account2": None,
+        "structured_data": structured_data
+    }
 
+    # ----------------------------
+    # Account 1
+    # ----------------------------
     try:
-        # -- Check for open orders for this security_id
-        existing_orders_response = dhan.get_order_list()
-        all_orders = existing_orders_response.get("data", [])
+        # Check for open orders
+        existing_orders_response_1 = dhan.get_order_list()
+        all_orders_1 = existing_orders_response_1.get("data", [])
 
-        open_orders_for_security = [
-            o for o in all_orders
-            if o.get("securityId") == SECURITY_ID
+        open_orders_for_security_1 = [
+            o for o in all_orders_1
+            if o.get("securityId") == SECURITY_ID_1
             and o.get("orderStatus") in ["OPEN", "TRANSIT", "PARTIALLY_FILLED", "PENDING"]
         ]
 
-        if open_orders_for_security:
-            # Modify the first open order
-            order_to_modify = open_orders_for_security[0]
-            order_id = order_to_modify.get("orderId")
+        if open_orders_for_security_1:
+            order_to_modify_1 = open_orders_for_security_1[0]
+            order_id_1 = order_to_modify_1.get("orderId")
 
-            modified_order = dhan.modify_order(
-                order_id=order_id,
+            modified_order_1 = dhan.modify_order(
+                order_id=order_id_1,
                 order_type=dhan.LIMIT,
-                leg_name="ENTRY_LEG", 
-                quantity=75,           # You can adjust quantity as needed
-                price=0.2,            # Example new price
-                trigger_price=0, 
-                disclosed_quantity=0, 
+                leg_name="ENTRY_LEG",
+                quantity=75,  # Example
+                price=0.2,   # Example
+                trigger_price=0,
+                disclosed_quantity=0,
                 validity=dhan.DAY
             )
-            logging.info(f"Order modified: {modified_order}")
+            logging.info(f"[Account1] Order modified: {modified_order_1}")
 
-            return {
+            results["account1"] = {
                 "message": "Found existing open order. Modified that order instead of placing new.",
-                "symbol": symbol,
-                "expiry": expiry,
-                "order": modified_order,
-                "structured_data": structured_data
+                "order": modified_order_1
             }
         else:
-            # Place a new order
-            order = dhan.place_order(
-                security_id=SECURITY_ID,
+            # Place new order
+            order_1 = dhan.place_order(
+                security_id=SECURITY_ID_1,
                 exchange_segment=dhan.NSE_FNO,
                 transaction_type=dhan.BUY,
-                quantity=75,          # Make sure this is correct lot size
+                quantity=75,
                 order_type=dhan.LIMIT,
                 product_type=dhan.MARGIN,
-                price=0.1             # Hard-coded example
+                price=0.1  # Example
             )
-            logging.info(f"Order placed: {order}")
+            logging.info(f"[Account1] Order placed: {order_1}")
 
-            return {
+            results["account1"] = {
                 "message": "No existing open order found; placed a new order.",
-                "symbol": symbol,
-                "expiry": expiry,
-                "order": order,
-                "structured_data": structured_data
+                "order": order_1
             }
 
     except Exception as e:
-        logging.error(f"Order placement/modification failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Order placement/modification failed: {str(e)}")
+        logging.error(f"[Account1] Order placement/modification failed: {str(e)}")
+        results["account1"] = {
+            "error": f"Order placement/modification failed: {str(e)}"
+        }
+
+    # ----------------------------
+    # Account 2
+    # ----------------------------
+    try:
+        # Check for open orders
+        existing_orders_response_2 = dhan2.get_order_list()
+        all_orders_2 = existing_orders_response_2.get("data", [])
+
+        open_orders_for_security_2 = [
+            o for o in all_orders_2
+            if o.get("securityId") == SECURITY_ID_2
+            and o.get("orderStatus") in ["OPEN", "TRANSIT", "PARTIALLY_FILLED", "PENDING"]
+        ]
+
+        if open_orders_for_security_2:
+            order_to_modify_2 = open_orders_for_security_2[0]
+            order_id_2 = order_to_modify_2.get("orderId")
+
+            modified_order_2 = dhan2.modify_order(
+                order_id=order_id_2,
+                order_type=dhan2.LIMIT,
+                leg_name="ENTRY_LEG",
+                quantity=75,  
+                price=0.2,   
+                trigger_price=0,
+                disclosed_quantity=0,
+                validity=dhan2.DAY
+            )
+            logging.info(f"[Account2] Order modified: {modified_order_2}")
+
+            results["account2"] = {
+                "message": "Found existing open order. Modified that order instead of placing new.",
+                "order": modified_order_2
+            }
+        else:
+            # Place new order
+            order_2 = dhan2.place_order(
+                security_id=SECURITY_ID_2,
+                exchange_segment=dhan2.NSE_FNO,
+                transaction_type=dhan2.BUY,
+                quantity=75,
+                order_type=dhan2.LIMIT,
+                product_type=dhan2.MARGIN,
+                price=0.1  
+            )
+            logging.info(f"[Account2] Order placed: {order_2}")
+
+            results["account2"] = {
+                "message": "No existing open order found; placed a new order.",
+                "order": order_2
+            }
+
+    except Exception as e:
+        logging.error(f"[Account2] Order placement/modification failed: {str(e)}")
+        results["account2"] = {
+            "error": f"Order placement/modification failed: {str(e)}"
+        }
+
+    return results
