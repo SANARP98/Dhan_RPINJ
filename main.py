@@ -13,7 +13,7 @@ import json
 import re
 from typing import Dict
 from dhanhq import dhanhq
-from openai import OpenAI
+from openai import AsyncOpenAI  # Changed to AsyncOpenAI for async support
 
 # -----------------------------
 # Configuration
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
-        extra = "ignore"  # Allow extra fields like DHAN_API_KEY, etc.
+        extra = "ignore"
 
 settings = Settings()
 load_dotenv()
@@ -79,7 +79,7 @@ class Database:
             cursor.close()
 
 db = Database(settings.db_path)
-client = OpenAI(api_key=settings.openai_api_key)
+client = AsyncOpenAI(api_key=settings.openai_api_key)  # Use AsyncOpenAI
 
 # -----------------------------
 # Models
@@ -112,8 +112,8 @@ class AddAccountRequest(BaseModel):
 # -----------------------------
 # Helper Functions
 # -----------------------------
-def handle_error(message: str, status_code: int = 500):
-    return {"error": message}, status_code
+def handle_error(message: str, status_code: int = 500) -> dict:
+    return {"error": message, "status_code": status_code}
 
 def determine_expiry(text: str) -> str:
     today = datetime.date.today()
@@ -124,17 +124,22 @@ def determine_expiry(text: str) -> str:
     return weekly_expiry.strftime("%d/%m/%Y") if "weekly" in text.lower() else monthly_expiry.strftime("%Y-%m-%d")
 
 def clean_gpt_response(response: str) -> str:
-    return re.sub(r"```json\s*|\s*```", "", response).strip()
+    cleaned = re.sub(r"```json\s*|\s*```", "", response).strip()
+    logging.info(f"Cleaned GPT response: {cleaned}")
+    return cleaned
 
 def generate_prompt(text: str, today_date: str, expiry_date: str) -> str:
     return f"""
-    Extract structured trading information from the given text.
+    Extract structured trading information from the given text. 
+    datelogic = Year should always be 2025. If weekly is mentioned then print {expiry_date} in expiry, if nothing is mentioned or monthly is mentioned then print {expiry_date}. date should always be in dd/mm/yyyy format
+
     **Input Text:** "{text}"
+
     **Expected Output JSON:**
     {{
-        "symbol": "<Extracted Symbol>",
-        "date": "{today_date}",
-        "expiry": "{expiry_date}",
+        "symbol": "<Extracted Symbol>",  # Should be in this format only: NIFTY followed by which month and yyyy followed by the 5 digit price followed by ce or pe "NIFTY-Feb2025-23800-CE"
+        "date": "{today_date}", #should be in dd/mm/yy format only (also based on month decision above) (this is todays date as given in prompt input)
+        "expiry": "datelogin", #similarly change month based on date above. This should be either weekly expiry date mentioned in prompt or monthly expiry date mentioned in prompt.
         "Buy1": <Lowest Buy Price>,
         "Buy2": <Second Lowest Buy Price>,
         "SL1": <Highest SL>,
@@ -142,18 +147,25 @@ def generate_prompt(text: str, today_date: str, expiry_date: str) -> str:
         "Target1": <First Closest Target>,
         "Target2": <Second Closest Target>
     }}
-    Ensure the values are correctly extracted and formatted from the input text.
+
+    Ensure the values are correctly extracted and formatted from the input text. Dont give any pre and post explanation. Just the output. 
     """
 
 async def call_chatgpt(prompt: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are an expert in financial data extraction."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
+    try:
+        response = await client.chat.completions.create(  # Properly awaited with AsyncOpenAI
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an expert in financial data extraction."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        raw_response = response.choices[0].message.content
+        logging.info(f"Raw GPT response: {raw_response}")
+        return raw_response
+    except Exception as e:
+        logging.error(f"Error calling GPT: {str(e)}")
+        return ""
 
 def search_options_in_db(symbol: str, expiry: str) -> dict:
     if not os.path.exists(settings.db_path):
@@ -235,7 +247,7 @@ async def homepage(request: Request):
 async def add_account(req: AddAccountRequest):
     account_id = req.api_key
     if account_id in accounts:
-        return handle_error("Account already exists", 400)
+        raise HTTPException(status_code=400, detail=handle_error("Account already exists"))
     
     try:
         dhan_client = dhanhq(req.api_key, req.password)
@@ -244,7 +256,7 @@ async def add_account(req: AddAccountRequest):
         logging.info(f"Account {account_id} added successfully.")
         return {"message": f"Account {account_id} added successfully"}
     except Exception as e:
-        return handle_error(f"Failed to add account: {str(e)}", 500)
+        raise HTTPException(status_code=500, detail=handle_error(f"Failed to add account: {str(e)}"))
 
 last_structured_data = None
 
@@ -252,7 +264,7 @@ last_structured_data = None
 async def submit_text(input_data: TextInput):
     global last_structured_data
     if not accounts:
-        return handle_error("No accounts added", 400)
+        raise HTTPException(status_code=400, detail=handle_error("No accounts added"))
 
     today_date = datetime.datetime.today().strftime("%d/%m/%Y")
     expiry_date = determine_expiry(input_data.text)
@@ -260,14 +272,18 @@ async def submit_text(input_data: TextInput):
     gpt_response = await call_chatgpt(prompt)
     cleaned_response = clean_gpt_response(gpt_response)
 
+    if not cleaned_response:
+        raise HTTPException(status_code=400, detail=handle_error("GPT returned an empty response"))
+
     try:
         structured_data = TradingResponse(**json.loads(cleaned_response))
     except json.JSONDecodeError as e:
-        return handle_error(f"Failed to parse GPT response: {str(e)}", 400)
+        logging.error(f"Failed to parse GPT response: {cleaned_response}")
+        raise HTTPException(status_code=400, detail=handle_error(f"Failed to parse GPT response: {str(e)}"))
 
     matching_options = search_options_in_db(structured_data.symbol, structured_data.expiry)
     if "error" in matching_options:
-        return handle_error(matching_options["error"], 404)
+        raise HTTPException(status_code=404, detail=handle_error(matching_options["error"]))
     if "data" not in matching_options or not matching_options["data"]:
         return {"message": "No matching symbol+expiry in DB", "structured_data": structured_data.dict()}
 
@@ -282,7 +298,7 @@ async def submit_text(input_data: TextInput):
 @app.post("/place-order", response_model=dict)
 async def place_order():
     if not accounts:
-        return handle_error("No accounts added", 400)
+        raise HTTPException(status_code=400, detail=handle_error("No accounts added"))
 
     buy_price = last_structured_data.Buy1 if last_structured_data else 0.1
     results = {}
@@ -302,7 +318,7 @@ async def place_order():
 @app.get("/orders", response_model=dict)
 async def get_orders():
     if not accounts:
-        return handle_error("No accounts added", 400)
+        raise HTTPException(status_code=400, detail=handle_error("No accounts added"))
 
     results = {}
     for account_id, client in accounts.items():
@@ -316,7 +332,7 @@ async def get_orders():
 @app.get("/holdings", response_model=dict)
 async def get_holdings():
     if not accounts:
-        return handle_error("No accounts added", 400)
+        raise HTTPException(status_code=400, detail=handle_error("No accounts added"))
 
     results = {}
     for account_id, client in accounts.items():
@@ -330,7 +346,7 @@ async def get_holdings():
 @app.get("/positions", response_model=dict)
 async def get_positions():
     if not accounts:
-        return handle_error("No accounts added", 400)
+        raise HTTPException(status_code=400, detail=handle_error("No accounts added"))
 
     results = {}
     for account_id, client in accounts.items():
@@ -344,7 +360,7 @@ async def get_positions():
 @app.post("/cancel-all-orders", response_model=dict)
 async def cancel_all_orders():
     if not accounts:
-        return handle_error("No accounts added", 400)
+        raise HTTPException(status_code=400, detail=handle_error("No accounts added"))
 
     results = {account_id: {"canceled": [], "errors": []} for account_id in accounts}
     for account_id, client in accounts.items():
@@ -365,12 +381,12 @@ async def cancel_all_orders():
 @app.post("/close-position", response_model=dict)
 async def close_position(req: ClosePositionRequest):
     if req.account_id not in accounts:
-        return handle_error(f"Account {req.account_id} not found", 404)
+        raise HTTPException(status_code=404, detail=handle_error(f"Account {req.account_id} not found"))
 
     current_dhan = accounts[req.account_id]
     try:
         if req.netQty == 0:
-            return handle_error("netQty=0, nothing to close", 400)
+            raise HTTPException(status_code=400, detail=handle_error("netQty=0, nothing to close"))
 
         transaction_type = current_dhan.SELL if req.netQty > 0 else current_dhan.BUY
         qty_abs = abs(req.netQty)
@@ -388,7 +404,7 @@ async def close_position(req: ClosePositionRequest):
         )
         return {"message": "Position close order placed", "orderResponse": result}
     except Exception as e:
-        return handle_error(f"Failed to close position: {str(e)}", 500)
+        raise HTTPException(status_code=500, detail=handle_error(f"Failed to close position: {str(e)}"))
 
 if __name__ == "__main__":
     import uvicorn

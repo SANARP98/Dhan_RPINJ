@@ -3,135 +3,241 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DhanHQ Multi-Account Trading Dashboard</title>
+  <title>DhanHQ Trading Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-dark: #6366f1;
+      --card-bg: #ffffff;
+      --text-primary: #1f2937;
+      --text-secondary: #6b7280;
+      --bg-gradient: linear-gradient(135deg, #f8fafc, #e2e8f0);
+      --sidebar-bg: #f1f5f9;
+      --border-color: rgba(0, 0, 0, 0.1);
+    }
+
+    [data-theme="dark"] {
+      --primary: #818cf8;
+      --primary-dark: #a5b4fc;
+      --card-bg: #1f2937;
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --bg-gradient: linear-gradient(135deg, #111827, #1f2937);
+      --sidebar-bg: #1e293b;
+      --border-color: rgba(255, 255, 255, 0.1);
+    }
+
     body {
       font-family: 'Inter', sans-serif;
-      background: linear-gradient(to bottom right, #e5e7eb, #f3f4f6);
+      background: var(--bg-gradient);
       min-height: 100vh;
       margin: 0;
       padding: 0;
+      color: var(--text-primary);
+      transition: background 0.3s ease, color 0.3s ease;
     }
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px;
+
+    .sidebar {
+      background: var(--sidebar-bg);
+      transition: all 0.3s ease;
+      border-right: 1px solid var(--border-color);
     }
+
     .card {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      background: var(--card-bg);
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
       padding: 20px;
-      margin-bottom: 20px;
+      transition: all 0.3s ease;
+      border: 1px solid var(--border-color);
     }
+
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    }
+
     .btn {
-      transition: background-color 0.2s, transform 0.1s;
+      transition: all 0.2s ease;
+      border-radius: 8px;
+      font-weight: 500;
+      padding: 8px 16px;
     }
+
     .btn:hover {
-      transform: scale(1.05);
+      transform: translateY(-1px);
+      filter: brightness(1.1);
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .input-field {
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--border-color);
+      transition: all 0.2s ease;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    [data-theme="dark"] .input-field {
+      background: rgba(55, 65, 81, 0.9);
+      color: var(--text-primary);
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 20px;
+      background: #d1d5db;
+      border-radius: 9999px;
+      transition: background 0.3s ease;
+      cursor: pointer;
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 2px;
+      top: 2px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s ease;
+    }
+
+    [data-theme="dark"] .toggle-switch {
+      background: var(--primary);
+    }
+
+    [data-theme="dark"] .toggle-switch::after {
+      transform: translateX(20px);
+    }
+
+    .collapsible-header {
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .collapsible-header:hover {
+      background: rgba(79, 70, 229, 0.1);
+    }
+
+    .table-header {
+      background: linear-gradient(to right, var(--primary), var(--primary-dark));
+      color: white;
+    }
+
+    .table-row:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    /* Animation */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .animate-fade-in {
+      animation: fadeIn 0.3s ease-in;
     }
   </style>
 </head>
 <body>
-  <div class="container mx-auto px-4 py-8">
-    <h1 class="text-3xl font-bold text-gray-800 text-center mb-6">DhanHQ Multi-Account Trading Dashboard</h1>
-
-    <!-- Add Account Section -->
-    <div class="card">
-      <h2 class="text-xl font-semibold text-gray-700 mb-4">Add New Account</h2>
-      <div class="flex flex-col sm:flex-row gap-4">
-        <input
-          id="apiKeyInput"
-          type="text"
-          class="w-full sm:w-1/2 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Enter Dhan API Key"
-        />
-        <input
-          id="passwordInput"
-          type="password"
-          class="w-full sm:w-1/2 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Enter Dhan Password"
-        />
-        <button
-          onclick="addAccount()"
-          class="bg-blue-600 text-white px-6 py-2 rounded-lg btn hover:bg-blue-700"
-        >
-          Add Account
-        </button>
+  <div class="flex h-screen">
+    <!-- Sidebar -->
+    <div class="sidebar w-64 fixed h-full p-4 flex flex-col">
+      <h1 class="text-2xl font-bold mb-6 text-[var(--text-primary)]">DhanHQ</h1>
+      <nav class="flex-1">
+        <button onclick="scrollToSection('add-account')" class="w-full text-left py-2 px-4 mb-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all">Add Account</button>
+        <button onclick="scrollToSection('trade-input')" class="w-full text-left py-2 px-4 mb-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all">Trade Input</button>
+        <button onclick="fetchOrders()" class="w-full text-left py-2 px-4 mb-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all">Orders</button>
+        <button onclick="fetchHoldings()" class="w-full text-left py-2 px-4 mb-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all">Holdings</button>
+        <button onclick="fetchPositions()" class="w-full text-left py-2 px-4 mb-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all">Positions</button>
+      </nav>
+      <div class="flex items-center gap-2 mt-auto">
+        <span class="text-[var(--text-secondary)]">Dark Mode</span>
+        <div class="toggle-switch" onclick="toggleTheme()"></div>
       </div>
-      <p id="accountMessage" class="mt-2 text-sm font-medium"></p>
     </div>
 
-    <!-- Input Section -->
-    <div class="card">
-      <textarea
-        id="textInput"
-        class="w-full h-32 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        placeholder="Enter your trading text here (e.g., 'Buy NIFTY 25000 CE at 120, SL 100, Target 150')..."
-      ></textarea>
-      <button
-        onclick="submitText()"
-        class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg btn hover:bg-blue-700"
-      >
-        Submit Text
-      </button>
-      <p id="message" class="mt-2 text-sm font-medium"></p>
-    </div>
+    <!-- Main Content -->
+    <div class="flex-1 ml-64 p-6 overflow-y-auto">
+      <!-- Add Account -->
+      <div id="add-account" class="card mb-6">
+        <div class="collapsible-header p-4 rounded-t-lg" onclick="toggleCollapsible('add-account-content')">
+          <h2 class="text-xl font-semibold text-[var(--text-primary)]">Add New Account</h2>
+        </div>
+        <div id="add-account-content" class="p-4">
+          <div class="flex flex-col sm:flex-row gap-4">
+            <input id="apiKeyInput" type="text" class="input-field flex-1" placeholder="Enter Dhan API Key" />
+            <input id="passwordInput" type="password" class="input-field flex-1" placeholder="Enter Dhan Password" />
+            <button onclick="addAccount()" class="bg-[var(--primary)] text-white btn">Add Account</button>
+          </div>
+          <p id="accountMessage" class="mt-2 text-sm text-[var(--text-secondary)]"></p>
+        </div>
+      </div>
 
-    <!-- Structured Data Display -->
-    <div id="structuredData" class="card hidden">
-      <h2 class="text-xl font-semibold text-gray-700 mb-4">Extracted Trading Data</h2>
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-blue-600 text-white">
-            <th class="p-3">Field</th>
-            <th class="p-3">Value</th>
-          </tr>
-        </thead>
-        <tbody id="structuredDataTable"></tbody>
-      </table>
-    </div>
+      <!-- Trade Input -->
+      <div id="trade-input" class="card mb-6">
+        <div class="collapsible-header p-4 rounded-t-lg" onclick="toggleCollapsible('trade-input-content')">
+          <h2 class="text-xl font-semibold text-[var(--text-primary)]">Trade Input</h2>
+        </div>
+        <div id="trade-input-content" class="p-4">
+          <textarea id="textInput" class="input-field w-full h-24 resize-none" placeholder="Enter trading text (e.g., 'Buy NIFTY 25000 CE at 120, SL 100, Target 150')"></textarea>
+          <div class="flex gap-4 mt-4">
+            <button onclick="submitText()" class="bg-[var(--primary)] text-white btn">Submit</button>
+            <button onclick="placeOrder()" class="bg-green-600 text-white btn">Place Order</button>
+            <button onclick="cancelAllOrders()" class="bg-red-600 text-white btn">Cancel All</button>
+          </div>
+          <p id="message" class="mt-2 text-sm text-[var(--text-secondary)]"></p>
+          <div id="structuredData" class="mt-4 hidden">
+            <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">Extracted Data</h3>
+            <table class="w-full border-collapse rounded-lg overflow-hidden">
+              <thead class="table-header">
+                <tr><th class="p-3">Field</th><th class="p-3">Value</th></tr>
+              </thead>
+              <tbody id="structuredDataTable" class="text-[var(--text-primary)]"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
-    <!-- Action Buttons -->
-    <div class="flex flex-wrap justify-center gap-4 mb-8">
-      <button
-        onclick="placeOrder()"
-        class="bg-green-600 text-white px-6 py-2 rounded-lg btn hover:bg-green-700"
-      >
-        Place/Modify Order
-      </button>
-      <button
-        onclick="fetchOrders()"
-        class="bg-indigo-600 text-white px-6 py-2 rounded-lg btn hover:bg-indigo-700"
-      >
-        Fetch Orders
-      </button>
-      <button
-        onclick="fetchHoldings()"
-        class="bg-purple-600 text-white px-6 py-2 rounded-lg btn hover:bg-purple-700"
-      >
-        Fetch Holdings
-      </button>
-      <button
-        onclick="fetchPositions()"
-        class="bg-teal-600 text-white px-6 py-2 rounded-lg btn hover:bg-teal-700"
-      >
-        Fetch Positions
-      </button>
-      <button
-        onclick="cancelAllOrders()"
-        class="bg-red-600 text-white px-6 py-2 rounded-lg btn hover:bg-red-700"
-      >
-        Cancel All Orders
-      </button>
+      <!-- Accounts Display -->
+      <div id="accountsContainer" class="space-y-6"></div>
     </div>
-
-    <!-- Accounts Display -->
-    <div id="accountsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
   </div>
 
   <script>
+    function toggleTheme() {
+      document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', document.documentElement.dataset.theme);
+    }
+
+    function toggleCollapsible(id) {
+      const content = document.getElementById(id);
+      content.classList.toggle('hidden');
+    }
+
+    function scrollToSection(id) {
+      document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedTheme = localStorage.getItem('theme') || 'dark';
+      document.documentElement.dataset.theme = savedTheme;
+      fetchAccounts();
+    });
+
     async function addAccount() {
       const apiKey = document.getElementById("apiKeyInput").value.trim();
       const password = document.getElementById("passwordInput").value.trim();
@@ -139,7 +245,6 @@
         alert("Please enter both API Key and Password.");
         return;
       }
-
       try {
         const response = await fetch('/add-account', {
           method: 'POST',
@@ -148,18 +253,13 @@
         });
         const data = await response.json();
         const messageEl = document.getElementById("accountMessage");
-
+        messageEl.textContent = response.ok ? data.message : `Error: ${data.error || "Unknown error"}`;
+        messageEl.classList.toggle("text-green-600", response.ok);
+        messageEl.classList.toggle("text-red-600", !response.ok);
         if (response.ok) {
-          messageEl.textContent = data.message;
-          messageEl.classList.remove("text-red-600");
-          messageEl.classList.add("text-green-600");
           document.getElementById("apiKeyInput").value = "";
           document.getElementById("passwordInput").value = "";
           fetchAccounts();
-        } else {
-          messageEl.textContent = "Error: " + (data.error || "Unknown error");
-          messageEl.classList.remove("text-green-600");
-          messageEl.classList.add("text-red-600");
         }
       } catch (error) {
         alert("Network error: " + error);
@@ -186,17 +286,10 @@
         });
         const data = await response.json();
         const messageEl = document.getElementById("message");
-
-        if (response.ok) {
-          messageEl.textContent = "Text submitted successfully!";
-          messageEl.classList.remove("text-red-600");
-          messageEl.classList.add("text-green-600");
-          displayStructuredData(data.structured_data);
-        } else {
-          messageEl.textContent = "Error: " + (data.error || "Unknown error");
-          messageEl.classList.remove("text-green-600");
-          messageEl.classList.add("text-red-600");
-        }
+        messageEl.textContent = response.ok ? "Text submitted successfully!" : `Error: ${data.error || "Unknown error"}`;
+        messageEl.classList.toggle("text-green-600", response.ok);
+        messageEl.classList.toggle("text-red-600", !response.ok);
+        if (response.ok) displayStructuredData(data.structured_data);
       } catch (error) {
         alert("Network error: " + error);
       }
@@ -207,12 +300,11 @@
       const tableBody = document.getElementById("structuredDataTable");
       structuredDiv.classList.remove("hidden");
       tableBody.innerHTML = "";
-
       for (const [key, value] of Object.entries(data || {})) {
         tableBody.innerHTML += `
-          <tr class="border-b">
-            <td class="p-3 text-gray-700">${key}</td>
-            <td class="p-3 text-gray-900">${value}</td>
+          <tr class="border-b border-[var(--border-color)] table-row">
+            <td class="p-3">${key}</td>
+            <td class="p-3 font-medium">${value}</td>
           </tr>
         `;
       }
@@ -271,8 +363,7 @@
 
     async function closeMarketPosition(accountId, securityId, netQty) {
       if (!confirm("Close this position at MARKET?")) return;
-      const payload = { account_id: accountId, securityId, netQty, orderType: "MARKET", price: 0 };
-      await closePosition(payload, "Market");
+      await closePosition({ account_id: accountId, securityId, netQty, orderType: "MARKET", price: 0 }, "Market");
     }
 
     async function closeLimitPosition(accountId, securityId, netQty) {
@@ -283,8 +374,7 @@
         alert("Invalid price.");
         return;
       }
-      const payload = { account_id: accountId, securityId, netQty, orderType: "LIMIT", price: priceNum };
-      await closePosition(payload, "Limit");
+      await closePosition({ account_id: accountId, securityId, netQty, orderType: "LIMIT", price: priceNum }, "Limit");
     }
 
     async function closePosition(payload, type) {
@@ -308,9 +398,10 @@
       for (const [accountId, info] of Object.entries(data)) {
         const html = `
           <div class="card">
-            <h2 class="text-xl font-semibold text-gray-700 bg-blue-100 p-3 rounded-t-lg">Account ${accountId}</h2>
-            <div class="mt-4">
-              <h3 class="text-lg font-medium text-gray-600">${key.charAt(0).toUpperCase() + key.slice(1)}</h3>
+            <div class="collapsible-header p-4 rounded-t-lg" onclick="toggleCollapsible('account-${accountId}-${key}')">
+              <h2 class="text-xl font-semibold text-[var(--text-primary)]">Account ${accountId} - ${key.charAt(0).toUpperCase() + key.slice(1)}</h2>
+            </div>
+            <div id="account-${accountId}-${key}" class="p-4">
               <div class="overflow-x-auto">${tableFunc(info[key], accountId)}</div>
             </div>
           </div>
@@ -320,52 +411,48 @@
     }
 
     function createOrdersTable(orders) {
-      if (!orders?.length) return "<p class='text-gray-500'>No orders found.</p>";
-      let html = `<table class="w-full border-collapse">
-        <thead class="bg-blue-600 text-white">
-          <tr><th class="p-2">Order ID</th><th>Status</th><th>Symbol</th><th>Security ID</th><th>Qty</th><th>Price</th><th>Time</th></tr>
+      if (!orders?.length) return "<p class='text-[var(--text-secondary)]'>No orders found.</p>";
+      let html = `<table class="w-full border-collapse rounded-lg overflow-hidden">
+        <thead class="table-header">
+          <tr><th class="p-3">Order ID</th><th>Status</th><th>Symbol</th><th>Security ID</th><th>Qty</th><th>Price</th><th>Time</th></tr>
         </thead><tbody>`;
       orders.forEach(o => {
-        html += `<tr class="border-b"><td class="p-2">${o.orderId || ""}</td><td>${o.orderStatus || ""}</td><td>${o.tradingSymbol || ""}</td><td>${o.securityId || ""}</td><td>${o.quantity || ""}</td><td>${o.price || ""}</td><td>${o.createTime || ""}</td></tr>`;
+        html += `<tr class="border-b border-[var(--border-color)] table-row"><td class="p-3">${o.orderId || ""}</td><td>${o.orderStatus || ""}</td><td>${o.tradingSymbol || ""}</td><td>${o.securityId || ""}</td><td>${o.quantity || ""}</td><td>${o.price || ""}</td><td>${o.createTime || ""}</td></tr>`;
       });
       return html + "</tbody></table>";
     }
 
     function createHoldingsTable(holdings) {
-      if (!holdings?.length) return "<p class='text-gray-500'>No holdings found.</p>";
-      let html = `<table class="w-full border-collapse">
-        <thead class="bg-blue-600 text-white">
-          <tr><th class="p-2">Security ID</th><th>Symbol</th><th>Qty</th><th>Avg Price</th><th>Current Price</th><th>P/L</th></tr>
+      if (!holdings?.length) return "<p class='text-[var(--text-secondary)]'>No holdings found.</p>";
+      let html = `<table class="w-full border-collapse rounded-lg overflow-hidden">
+        <thead class="table-header">
+          <tr><th class="p-3">Security ID</th><th>Symbol</th><th>Qty</th><th>Avg Price</th><th>Current Price</th><th>P/L</th></tr>
         </thead><tbody>`;
       holdings.forEach(h => {
         const avg = h.avgCostPrice || 0;
         const last = h.lastTradedPrice || 0;
         const qty = h.totalQty || 0;
         const pl = ((last - avg) * qty).toFixed(2);
-        html += `<tr class="border-b"><td class="p-2">${h.securityId || ""}</td><td>${h.tradingSymbol || ""}</td><td>${qty}</td><td>${avg.toFixed(2)}</td><td>${last.toFixed(2)}</td><td class="${pl >= 0 ? 'text-green-600' : 'text-red-600'}">${pl}</td></tr>`;
+        html += `<tr class="border-b border-[var(--border-color)] table-row"><td class="p-3">${h.securityId || ""}</td><td>${h.tradingSymbol || ""}</td><td>${qty}</td><td>${avg.toFixed(2)}</td><td>${last.toFixed(2)}</td><td class="${pl >= 0 ? 'text-green-600' : 'text-red-600'}">${pl}</td></tr>`;
       });
       return html + "</tbody></table>";
     }
 
     function createPositionsTable(positions, accountId) {
-      if (!positions?.length) return "<p class='text-gray-500'>No positions found.</p>";
-      let html = `<table class="w-full border-collapse">
-        <thead class="bg-blue-600 text-white">
-          <tr><th class="p-2">Symbol</th><th>Type</th><th>Net Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>PnL</th><th>Actions</th></tr>
+      if (!positions?.length) return "<p class='text-[var(--text-secondary)]'>No positions found.</p>";
+      let html = `<table class="w-full border-collapse rounded-lg overflow-hidden">
+        <thead class="table-header">
+          <tr><th class="p-3">Symbol</th><th>Type</th><th>Net Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>PnL</th><th>Actions</th></tr>
         </thead><tbody>`;
       positions.forEach(p => {
         const totalPL = ((p.realizedProfit || 0) + (p.unrealizedProfit || 0)).toFixed(2);
-        html += `<tr class="border-b">
-          <td class="p-2">${p.tradingSymbol || ""}</td><td>${p.productType || ""}</td><td>${p.netQty || 0}</td><td>${(p.buyAvg || 0).toFixed(2)}</td><td>${(p.sellAvg || 0).toFixed(2)}</td><td class="${totalPL >= 0 ? 'text-green-600' : 'text-red-600'}">${totalPL}</td>
-          <td><button class="bg-blue-500 text-white px-2 py-1 rounded mr-1 hover:bg-blue-600" onclick="closeMarketPosition('${accountId}', '${p.securityId}', ${p.netQty})">MKT</button><button class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600" onclick="closeLimitPosition('${accountId}', '${p.securityId}', ${p.netQty})">LMT</button></td>
+        html += `<tr class="border-b border-[var(--border-color)] table-row">
+          <td class="p-3">${p.tradingSymbol || ""}</td><td>${p.productType || ""}</td><td>${p.netQty || 0}</td><td>${(p.buyAvg || 0).toFixed(2)}</td><td>${(p.sellAvg || 0).toFixed(2)}</td><td class="${totalPL >= 0 ? 'text-green-600' : 'text-red-600'}">${totalPL}</td>
+          <td class="flex gap-2 p-3"><button class="bg-[var(--primary)] text-white btn text-sm" onclick="closeMarketPosition('${accountId}', '${p.securityId}', ${p.netQty})">MKT</button><button class="bg-[var(--primary)] text-white btn text-sm" onclick="closeLimitPosition('${accountId}', '${p.securityId}', ${p.netQty})">LMT</button></td>
         </tr>`;
       });
       return html + "</tbody></table>";
     }
-
-    window.onload = () => {
-      fetchAccounts();
-    };
   </script>
 </body>
 </html>
