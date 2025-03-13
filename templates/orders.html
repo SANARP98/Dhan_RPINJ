@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Your Orders</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <h1>Order Details</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Order ID</th>
+                <th>Tradingsymbol</th>
+                <th>Exchange</th>
+                <th>Transaction Type</th>
+                <th>Order Type</th>
+                <th>Status</th>
+                <th>Quantity</th>
+                <th>Price</th>
+                <th>Average Price</th>
+                <th>Product</th>
+                <th>Order Timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+                <tr>
+                    <td>{{ order.order_id }}</td>
+                    <td>{{ order.tradingsymbol }}</td>
+                    <td>{{ order.exchange }}</td>
+                    <td>{{ order.transaction_type }}</td>
+                    <td>{{ order.order_type }}</td>
+                    <td>{{ order.status }}</td>
+                    <td>{{ order.quantity }}</td>
+                    <td>{{ order.price }}</td>
+                    <td>{{ order.average_price }}</td>
+                    <td>{{ order.product }}</td>
+                    <td>{{ order.order_timestamp }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

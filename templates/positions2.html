@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Your Positions</title>
+</head>
+<body>
+    <h1>Available Positions</h1>
+    <ul>
+        {% for pos in positions %}
+            <li>
+                {{ loop.index0 }}: Tradingsymbol: {{ pos.tradingsymbol }}, Quantity: {{ pos.quantity }}, Buy Price: {{ pos.average_price }}
+            </li>
+        {% endfor %}
+    </ul>
+
+    <h2>Manage a Position</h2>
+    <form action="/manage" method="post">
+        <label for="position_index">Enter the index of the position to manage:</label>
+        <input type="number" name="position_index" required>
+        <button type="submit">Start Monitoring</button>
+    </form>
+</body>
+<!-- Add this link to your existing positions2.html -->
+<a href="/orders">View All Orders</a>
+
+</html>

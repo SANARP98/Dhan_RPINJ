@@ -4,3 +4,4 @@ python-dotenv
 dhanhq
 jinja2
 openai
+kiteconnect
